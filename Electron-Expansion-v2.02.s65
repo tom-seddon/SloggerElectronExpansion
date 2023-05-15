@@ -1,0 +1,4939 @@
+                .include "submodules/beeb/include/beeb.s65"
+
+;-------------------------------------------------------------------------
+;
+; ROM zero page
+;
+
+L00A8=$A8
+L00A9=$A9
+L00AA=$AA
+L00AB=$AB
+L00AC=$AC
+L00AD=$AD
+                
+wptr=$b0
+L00B2=$b2
+L00B3=$b3
+
+;-------------------------------------------------------------------------
+; 
+; OS zero page
+;
+  
+os_auto_repeat_countdown=$e7 ; EAUG3 p187
+os_a=$ef ; A value for osbyte/osword
+os_x=$f0 ; X value for osbyte/osword
+os_y=$f1 ; Y value for osbyte/osword
+L00F2=$f2
+L00F4=$f4
+           
+L00F6=$f6
+L00F7=$f7
+L00FA=$fa
+L00FB=$fb
+L00FC=$fc
+L00FF=$ff
+
+;-------------------------------------------------------------------------
+; 
+; Stack regions
+;
+
+; Buffer for BRK stuff.
+L0100=$100
+
+; Various addresses in the little thunks that get copied to the stack.
+; Needs rationalising - these should be expressed as offsets into the
+; corresponding blocks of code.
+L0138=$138
+L0140=$140
+L014D=$14d
+L014E=$14e
+L0150=$150
+L0151=$151
+L0152=$152
+L0153=$153
+L0154=$154
+
+; Default address for joystick thunk.
+default_joystick_overlay_address=$155
+
+line_input_pblock=$150
+line_input_data=$155
+                
+;-------------------------------------------------------------------------
+; 
+; OS page 2/3
+;               
+os_current_adc_channel=$24c
+L0255=$255
+os_shadow_ram_flag=$27f
+os_printer_destination=$285 ; set by *FX5
+                ; 0 = BREAK
+                ; 1 = power on
+                ; 2 = CTRL+BREAK
+os_last_reset_type=$28d
+                
+                ; Flags ($0290 - unused by Electron OS)
+                ; %.a....jj    %jj = joystick interface to use
+                ;                a = 0=ADC, 1=9-pin joysticks
+os_unused=$290
+os_rom_types=$2a0
+os_buffer_busy_flags=$2c3
+L02CF=$2cf
+L02D8=$2d8
+os_last_adc_channel=$2f7
+os_adc_lsbs=$2f8
+os_adc_msbs=$2fc
+os_screen_mode=$355
+
+;-------------------------------------------------------------------------
+; 
+; Plus One workspace
+; 
+poll_flags=$d68
+serial_baud_rates=$d69
+serial_flags=$d6a
+L0D6B=$D6B
+L0D6C=$D6C
+L0D6D=$D6D
+L0D6E=$D6E
+L0DDE=$dde
+L0DDF=$ddf
+
+;-------------------------------------------------------------------------
+; 
+; ???
+;
+
+rload_ram_buffer=$2000
+file_name_buffer=$156
+rload_osfile_pblock=$1fe0
+                
+; L1FE3=$1fe3
+; L1FEA=$1fea
+; L1FEB=$1feb
+; L1FEF=$1fef
+
+;-------------------------------------------------------------------------
+; 
+; Plus One hardware
+;
+
+LFC60=$fc60
+xhw_serial_baud_rates=$fc61
+LFC62=$FC62
+LFC63=$FC63
+LFC64=$FC64
+LFC65=$FC65
+LFC6D=$FC6D
+LFC6E=$FC6E
+LFC6F=$FC6F
+                
+; Read: 8-bit ADC result
+; Write: ADC channel to convert (4 = ch1, 5 = ch2, etc.)
+plus1_adc=$fc70
+                
+plus1_printer=$fc71
+                
+; Read:
+;   7   6   5   4   3   2   1   0    BSY = printer busy
+; +---+---+---+---+---+---+---+---+  ADC = ADC conversion end
+; |BSY|ADC|FB1|FB2|               |  FB1 = fire button 1
+; +---+---+---+---+---+---+---+---+  FB2 = fire button 2
+; Write:
+; (looks like there's some kind of printer strobe in bit 4)
+plus1_status=$fc72
+                
+LFC73=$fc73
+
+;-------------------------------------------------------------------------
+; 
+; Stuff in ROM
+;
+  
+default_vectors_ptr=$ffb7
+
+; FF9C: PLA:<<restore that ROM>>:PLA:PLP:RTS                
+LFF9C=$ff9c
+
+; nonsense address in the Electron OS, but presumably meaningful with
+; the rombox?
+LFBFD=$fbfd
+                
+;-------------------------------------------------------------------------
+
+*=$8000
+                .byte 0
+                .byte 0
+                .byte 0
+
+;-------------------------------------------------------------------------
+
+                jmp service_entry
+
+;-------------------------------------------------------------------------
+
+                .byte $82       ; ROM type - $80 = has service entry
+                                ;            $02 = 6502 code
+                .byte <copyright ; copyright offset
+                .byte 0         ; ROM version
+rom_title:      .text "Electron Expansion"
+                .byte $7F, $7F, $7F, $7F, $7F, $7F, $7F, $7F, $7F, $7F, $7F ; 0 ; as many DELs as length of ROM title
+                .byte $7F, $7F, $7F, $7F, $7F, $7F, $7F                    ; 11
+                .byte $B        ; cursor up
+                .byte $B        ; cursor up
+                .byte 0
+rom_version_string:.text "2.02"
+copyright:
+                .byte 0
+rom_copyright_string:.text "(C)1988 Slogger"
+                .byte 0
+
+;-------------------------------------------------------------------------
+
+service_entry:
+                php
+                tax
+                cpx #$16
+                bcs L8057    ; taken if service >=$16
+                pha
+                asl a
+                tax
+                lda service_routines+1,x
+                pha
+                lda service_routines,x
+                pha
+                rts
+
+;-------------------------------------------------------------------------
+
+L8057:
+                ldx L00F4
+                plp
+                rts
+
+;-------------------------------------------------------------------------
+
+service_routines:.word svc_nop-1
+                .word svc_absolute_fs_space_claim-1
+                .word svc_nop-1
+                .word svc_nop-1
+                .word svc_star-1
+                .word svc_irq-1
+                .word svc_brk-1
+                .word svc_osbyte-1
+                .word svc_nop-1
+                .word svc_help-1
+                .word svc_nop-1
+                .word svc_nop-1
+                .word svc_nop-1
+                .word svc_nop-1
+                .word svc_nop-1
+                .word svc_nop-1
+                .word svc_nop-1
+                .word svc_nop-1
+                .word svc_nop-1
+                .word svc_rs423_buffer-1
+                .word svc_printer_buffer-1
+                .word svc_100Hz_poll-1
+
+;-------------------------------------------------------------------------
+
+svc_nop:
+                ldx L00F4
+                pla
+                plp
+                rts
+
+;-------------------------------------------------------------------------
+
+svc_claimed:
+                pla
+                lda #0
+                plp
+                rts
+
+;-------------------------------------------------------------------------
+
+svc_absolute_fs_space_claim:
+                tya
+                pha
+                lda #0
+                sta poll_flags
+                sta L0D6B
+                ldx #4
+                jsr set_adc_sampling_channels
+                lda os_last_reset_type; 0 = BREAK
+                                      ; 1 = power on
+                                      ; 2 = CTRL+BREAK
+                and #3
+                cmp #1
+                bcc L80AF    ; taken if soft BREAK
+                ldx #1
+                stx os_printer_destination; set by *FX5
+                sec
+
+L80AF:
+                jsr reset_serial
+                pla
+                tay
+                jmp svc_nop
+
+;-------------------------------------------------------------------------
+
+svc_star:
+                txa
+                pha
+                tya
+                pha
+                ldx #0
+                ldx #0
+                jsr find_command; Try to find command in commands table
+                                ; Entry: ($f2),y = pointer to string
+                                ;        X = offset into command_table
+                                ; Exit:
+                bcc L80CB
+                pla
+                tay
+                pla
+                tax
+                jmp svc_nop
+
+;-------------------------------------------------------------------------
+
+L80CB:
+                clc
+                jsr call_command_table_routine; Call routine from command table
+                                              ; Entry: X = offset of address in table
+                pla
+                tay
+                pla
+                tax
+                jmp svc_claimed
+
+;-------------------------------------------------------------------------
+
+L80D6:
+                ldx #$76
+                jmp do_error
+
+;-------------------------------------------------------------------------
+
+cmd_joystick:
+                bcc cmd_joystick_do
+                ldx #0
+
+cmd_joystick_help:
+                jsr print_following_string
+                .byte $D
+                .byte $A
+                .text "  *JOYSTICK 1-4 "
+                .byte 0
+L80F5:
+                lda cmd_joystick_banner,x
+                beq L8100
+                jsr oswrch
+                inx
+                bne L80F5
+
+L8100:
+                inx
+                lda cmd_joystick_banner,x
+                bne cmd_joystick_help
+                rts
+
+;-------------------------------------------------------------------------
+
+cmd_joystick_do:
+                jsr reset_default_vectors; Reset BYTEV and KEYV to their default values.
+                jsr is_string_empty      ; Check if command line tail is empty.
+                                         ; Entry: ($f2),y = command line tail
+                                         ; Exit:  C=0 - something on command line
+                                         ;        C=1 - nothing on command line
+                bcs L80D6
+                jsr strtoi
+                tax
+                dex
+                cpx #4
+                bcs L80D6
+                stx wptr
+                lda os_unused   ; Flags ($0290 - unused by Electron OS)
+                                ; %.a....jj    %jj = joystick interface to use
+                                ;                a = 0=ADC, 1=9-pin joysticks
+                and #$FC        ; clear joystick bits
+                ora wptr        ; set joystick bits
+                sta os_unused   ; Flags ($0290 - unused by Electron OS)
+                                ; %.a....jj    %jj = joystick interface to use
+                                ;                a = 0=ADC, 1=9-pin joysticks
+                jsr is_string_empty; Check if command line tail is empty.
+                                   ; Entry: ($f2),y = command line tail
+                                   ; Exit:  C=0 - something on command line
+                                   ;        C=1 - nothing on command line
+                bcs L8191
+                tya
+                pha
+                ldx #joystick_subcommands-command_table;
+                jsr find_command; Try to find command in commands table
+                                ; Entry: ($f2),y = pointer to string
+                                ;        X = offset into command_table
+                                ; Exit:
+                pla
+                tay
+                bcc L8153
+                ldx #0
+
+L8136:
+                jsr strtoi
+                eor #$FF
+                and #$7F
+                sta wptr
+                txa
+                pha
+                lda rom_banks_table,x; table holding ROM bank numbers for 5 unused ROMs
+                tax
+                lda wptr
+                sta os_rom_types,x
+                pla
+                tax
+                inx
+                cpx #5
+
+L814F:
+                bne L8136
+                beq L817A
+
+L8153:
+                jsr call_command_table_routine; Call routine from command table
+                                              ; Entry: X = offset of address in table
+                jsr print_following_string
+                .byte $D
+                .text "Overlay address : "
+                .byte 0
+                jsr read_line
+                lda #<default_joystick_overlay_address
+                sta L00F2
+                lda #>default_joystick_overlay_address
+                sta L00F2+1
+                ldy #0
+
+L817A:
+                lda #$50
+                sta wptr
+                lda #1
+                sta wptr+1
+                jsr is_string_empty; Check if command line tail is empty.
+                                   ; Entry: ($f2),y = command line tail
+                                   ; Exit:  C=0 - something on command line
+                                   ;        C=1 - nothing on command line
+                bcs L818E       ; taken if string empty
+                jsr strtoi
+                ora wptr+1
+                beq L8191
+
+L818E:
+                jsr L81BC
+
+L8191:
+                lda os_unused   ; Flags ($0290 - unused by Electron OS)
+                                ; %.a....jj    %jj = joystick interface to use
+                                ;                a = 0=ADC, 1=9-pin joysticks
+                ora #$40
+                sta os_unused   ; Flags ($0290 - unused by Electron OS)
+                                ; %.a....jj    %jj = joystick interface to use
+                                ;                a = 0=ADC, 1=9-pin joysticks
+                rts
+
+;-------------------------------------------------------------------------
+
+read_line:      .block
+                lda #<line_input_data
+                sta line_input_pblock+0
+                lda #>line_input_data
+                sta line_input_pblock+1
+                lda #5
+                sta line_input_pblock+2
+                lda #32
+                sta line_input_pblock+3
+                lda #127
+                sta line_input_pblock+4
+                ldx #<line_input_pblock
+                ldy #>line_input_pblock
+                lda #0
+                jmp osword
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L81BC:       .block
+                php
+                sei
+                ldy #$D
+
+loop:
+                lda ram_thunk,y
+                sta (wptr),y
+                dey
+                bpl loop
+                lda wptr
+                sta keyv
+                lda wptr+1
+                sta keyv+1
+                clc
+                lda wptr
+                adc #2
+                sta wptr
+                bcc L81DD
+                inc wptr+1
+
+L81DD:
+                lda wptr
+                sta bytev
+                lda wptr+1
+                sta bytev+1
+                plp
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+; Reset BYTEV and KEYV to their default values.
+
+reset_default_vectors:.block
+                php
+                sei
+                tya
+                pha
+                lda default_vectors_ptr
+                sta wptr
+                lda default_vectors_ptr+1
+                sta wptr+1
+                ldy #$A         ; $0a = offset of BYTEV
+
+reset_bytev_loop:
+                lda (wptr),y
+                sta $200,y
+                iny
+                cpy #$C
+                bne reset_bytev_loop
+                ldy #$28        ; $28 = offset of KEYV
+
+reset_keyv_loop:
+                lda (wptr),y
+                sta $200,y
+                iny
+                cpy #$2A
+                bne reset_keyv_loop
+                pla
+                tay
+                plp
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+ram_thunk:
+                lda #$19
+; BYTEV entry point is here
+; ($19 is an unused OSBYTE, so the ROM code checks for the KEYV entry that way)
+                php
+                sei
+                sta os_a        ; A value for osbyte/osword
+                lda #$C
+                sta $fe05
+                jmp thunk_entry
+
+;-------------------------------------------------------------------------
+
+fred_offsets:   .byte $C0
+                ; offset of joystick I/O by joystick index
+                ; (see table on p6 of Elk Expansion manual)
+                .byte $D0
+                .byte $E0
+                .byte $F0
+
+;-------------------------------------------------------------------------
+
+thunk_entry:
+                pla             ; restore P
+                sta os_x        ; save P
+                lda L00F4
+                pha             ; save actual old ROM slot
+                lda #$C
+                sta L00F4     ; make $f4 and ROMSEL consistent
+; Prepare return address
+                lda #>thunk_exit-1
+                pha
+                lda #<thunk_exit-1
+                pha
+                lda os_x        ; restore P
+                pha             ; save P
+                lda os_a        ; A value for osbyte/osword
+                cmp #$19
+                beq thunked_keyv; taken if this is actually KEYV
+                cmp #$81
+                beq thunked_osbyte_81h; taken if this is OSBYTE $81
+                plp
+                jmp call_default_osbyte; Call default OSBYTE routine
+
+;-------------------------------------------------------------------------
+
+thunk_exit:
+                pha
+                php
+                txa
+                pha
+                tsx
+                lda $104,x
+                pha
+                lda $102,x
+                sta $104,x
+                pla
+                sta $102,x
+                pla
+                tax
+                jmp LFF9C    ; FF9C: PLA:<<restore that ROM>>:PLA:PLP:RTS
+
+;-------------------------------------------------------------------------
+
+thunked_keyv:
+                plp
+                bvs L8266    ; taken if called by timer interrupt service (no-op)
+                bcc L8266    ; taken if testing SHIFT/CTRL (no-op)
+                jmp thunked_scan_keyboard; call as if KEYV with C=1 V=0
+
+;-------------------------------------------------------------------------
+
+L8266:
+                jmp call_default_keyv; Call default KEYV routine
+
+;-------------------------------------------------------------------------
+
+thunked_osbyte_81h:
+                plp
+                cpy #$80
+                bcc L82BF
+                cpx #0
+                beq L82B8
+                pha
+                tya
+                pha
+                txa
+                pha
+                eor #$FF
+                and #$7F
+                jsr check_joystick_key; Check if a key is "pressed" by the joystick.
+                                      ; Entry: A = internal key number
+                                      ; Exit:  A=$ff if key pressed
+                                      ;        A=$00 if key not pressed
+                beq L8287          ; taken if key not pressed
+; set X/Y as per OSBYTE $81
+                tax
+                tay
+                sec
+                pla
+                pla
+                pla
+                rts
+
+;-------------------------------------------------------------------------
+
+L8287:
+                pla
+                tax
+                pla
+                tay
+                pla
+
+;-------------------------------------------------------------------------
+
+; Call default OSBYTE routine
+
+call_default_osbyte:.block
+                php             ; save input P
+                sei
+                pha             ; save input A
+                sty os_y        ; save input Y
+                ldy #$A         ; $0A = offset of BYTEV
+                bne call_default_vector_routine; JMP, in effect
+                .endblock
+
+;-------------------------------------------------------------------------
+
+; Call default KEYV routine
+
+call_default_keyv:.block
+                php             ; save input P
+                sei
+                pha             ; save input A
+                sty os_y        ; save input Y
+                ldy #$28        ; $28 = offset of KEYV
+                .endblock
+                
+call_default_vector_routine:
+                lda default_vectors_ptr
+                sta os_a        ; LSB of default vector table address
+                lda default_vectors_ptr+1
+                sta os_x        ; MSB of default vector table address
+                lda (os_a),y    ; get LSB of routine
+                pha             ; save LSB of routine
+                iny
+                lda (os_a),y    ; get MSB of routise
+                sta os_x        ; store MSB of routine
+                pla             ; restore LSB of routine
+                sta os_a        ; store LSB of routine
+                ldy os_y        ; restore input Y
+                pla             ; restore input A
+                plp             ; restore input P
+                jmp (os_a)      ; A value for osbyte/osword
+
+;-------------------------------------------------------------------------
+
+L82B8:
+                ldx #1
+                lda os_a        ; A value for osbyte/osword
+                ldy #0
+                rts
+
+;-------------------------------------------------------------------------
+
+L82BF:
+                tya
+                eor #$FF
+                tay
+                txa
+                eor #$FF
+                tax
+
+L82C7:
+                txa
+                pha
+                tya
+                pha
+; 1 centisecond
+                ldy #0
+                ldx #1
+                lda #$81        ; Read key within time limit (INKEY)
+                                ; (EAUG p45)
+                jsr call_default_osbyte; Call default OSBYTE routine
+                iny                    ; If key pressed: Y=$01
+                                       ; If key not pressed: Y=$00
+                bne L8300           ; taken if key pressed
+                jsr read_joystick_key  ; Read key "pressed" by joystick
+                                       ; Exit: Y=$00, C=0 - key pressed
+                                       ;                    A = action index
+                                       ;                    X = ASCII code
+                                       ;       Y=$ff, C=1 - no key pressed
+                iny                    ; If key pressed: Y=$01
+                                       ; If key not pressed: Y=$00
+                bne L82EE           ; taken if key pressed
+                lda #1
+                sta os_auto_repeat_countdown; EAUG3 p187
+
+L82E1:
+                pla
+                tay
+                pla
+                tax
+                inx
+                bne L82C7
+                iny
+                bne L82C7
+                dey
+                sec
+                rts
+
+;-------------------------------------------------------------------------
+
+L82EE:
+                lda os_auto_repeat_countdown; EAUG3 p187
+                beq L82F6
+                dec os_auto_repeat_countdown; EAUG3 p187
+                bne L82E1
+
+L82F6:
+                lda L0255    ; TODO - shouldn't this be lda #$ff?
+                                ; Presumably intended to reset the countdown timer
+                sta os_auto_repeat_countdown; EAUG3 p187
+                pla
+                pla
+                dey
+                sec
+                rts
+
+;-------------------------------------------------------------------------
+
+L8300:
+                dey
+                pla
+                pla
+                rts
+
+;-------------------------------------------------------------------------
+
+handle_digital_adval_unused:.block
+                cmp #$80
+                bne call_default_osbyte; Call default OSBYTE routine
+                cpx #5
+                bcs call_default_osbyte; Call default OSBYTE routine
+                pha
+                lda os_unused   ; Flags ($0290 - unused by Electron OS)
+                                ; %.a....jj    %jj = joystick interface to use
+                                ;                a = 0=ADC, 1=9-pin joysticks
+                and #3          ; mask out joystick bits
+                tay
+                lda fred_offsets,y; offset of joystick I/O by joystick index
+                                  ; (see table on p6 of Elk Expansion manual)
+                tay
+                lda $FC00,y
+                dex
+                bpl L832D
+                inx
+                ror a
+                ror a
+                bpl L8324
+                bcs L8329
+
+L8324:
+                lsr a
+                lsr a
+                and #1
+                tax
+
+L8329:
+                ldy #0
+                pla
+                rts
+
+;-------------------------------------------------------------------------
+
+L832D:
+                ldy #0
+                cpx #2
+                bcs L833F
+                dex
+                beq L8338
+                lsr a
+                lsr a
+
+L8338:
+                and #3
+                tay
+                lda adc_values_table,y
+                tay
+
+L833F:
+                ldx #0
+                pla
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+adc_values_table:.byte 127
+                .byte 255
+                .byte 0
+                .byte 127
+
+;-------------------------------------------------------------------------
+
+thunked_scan_keyboard:
+                cpx #$80
+                bcc scan_multiple_keys; taken if scanning a range of keys
+; scanning for specific key
+                pha             ; save A
+                txa
+                pha             ; save X
+                jsr check_joystick_key; Check if a key is "pressed" by the joystick.
+                                      ; Entry: A = internal key number
+                                      ; Exit:  A=$ff if key pressed
+                                      ;        A=$00 if key not pressed
+                bne L835B          ; taken if not pressed
+                pla                   ; restore X
+                tax
+                pla             ; restore A
+                sec
+                clv
+                jmp call_default_keyv; Call default KEYV routine
+
+;-------------------------------------------------------------------------
+
+L835B:
+                tax             ; X=$ff
+                pla             ; discard X
+                pla             ; restore A
+                rts
+
+;-------------------------------------------------------------------------
+
+scan_multiple_keys:
+                pha
+                tay
+                txa
+                pha
+                tya
+                sec
+                clv
+                jsr call_default_keyv; Call default KEYV routine
+                stx os_y             ; Save key number pressed (or $ff if none)
+                pla                  ; restore input X - key to start scanning from
+                sta os_x
+                ldx #4
+
+L8370:
+                jsr read_joystick; Read joystick
+                                 ; Entry: X = action index
+                                 ; Exit:  A=$00 if bit set, A=$FF if bit clear
+                beq L838C     ; taken if not pressed
+                txa              ; A = action index
+                pha              ; save action index
+                lda rom_banks_table,x; table holding ROM bank numbers for 5 unused ROMs
+                tax
+                lda os_rom_types,x; get key for this action
+                cmp os_x
+                bcc L838A    ; taken if out of scan range
+                beq L838A    ; TODO: Shouldn't equality be OK?
+                cmp os_y        ; Y value for osbyte/osword
+                bcs L838A    ; taken if >= KEYV result - but why?
+                sta os_y        ; overwrite original result with new one
+
+L838A:
+                pla             ; restore action index
+                tax             ; X = action index
+
+L838C:
+                dex
+                bpl L8370
+                ldx os_y        ; get KEYV result
+                pla
+                rts
+
+;-------------------------------------------------------------------------
+
+; Read key "pressed" by joystick
+; Exit: Y=$00, C=0 - key pressed
+;                    A = action index
+;                    X = ASCII code
+;       Y=$ff, C=1 - no key pressed
+
+read_joystick_key:.block
+                ldx #4
+
+L8395:
+                txa             ; A = action index
+                pha             ; Save action index
+                jsr read_joystick; Read joystick
+                                 ; Entry: X = action index
+                                 ; Exit:  A=$00 if bit set, A=$FF if bit clear
+                beq L83B2
+                lda rom_banks_table,x; get bank index for action index
+                tax
+                lda os_rom_types,x; get key for action
+                cmp #$7A
+                bcs L83B2    ; taken if invalid key number
+                tax
+                lda key_chars_table,x; get ASCII code for that key
+                beq L83B2         ; taken if not a printable key
+                tax                  ; X = ASCII code
+                pla                  ; A = action index
+                ldy #0               ; Y = $00
+                rts                  ; C=0
+
+;-------------------------------------------------------------------------
+
+L83B2:
+                pla             ; restore action index
+                tax
+                dex
+                bpl L8395    ; keep going for all action indexes
+                ldy #$FF
+                sec
+                rts             ; C=1
+                .endblock
+
+;-------------------------------------------------------------------------
+
+; Check if a key is "pressed" by the joystick.
+; Entry: A = internal key number
+; Exit:  A=$ff if key pressed
+;        A=$00 if key not pressed
+
+check_joystick_key:.block
+                ldx #0
+; 0,1 = Second external socket on expansion module (SK2)
+; 2,3 = First external socket on the expansion module (SK1)
+; 4 = Disc
+; 5,6 = USER applications
+; 7 = Modem interface ROM
+; 8,9 = Keyboard
+; 10,11 = BASIC
+; 12 = Expansion module operating system
+; 13 = High priority slot in expansion module
+; 14 = ECONET
+; 15 = Reserved
+; Of the two BASICs, looks like the higher priority one's type byte is filled out.
+; The lower copy is presumably eliminated by the duplicate ROM detection.
+                cmp os_rom_types+2
+                beq read_joystick; read_joystick with X=0
+                cmp os_rom_types+3
+                beq L83D9    ; read_joystick with X=1
+                cmp os_rom_types+8
+                beq L83D8    ; read_joystick with X=2
+                cmp os_rom_types+9
+                beq L83D7    ; read_joystick with X=3
+                cmp os_rom_types+$A
+                bne L83EF    ; read_joystick with X=4
+                inx
+
+L83D7:
+                inx
+
+L83D8:
+                inx
+
+L83D9:
+                inx
+                .endblock
+
+;-------------------------------------------------------------------------
+
+; Read joystick
+; Entry: X = action index
+; Exit:  A=$00 if bit set, A=$FF if bit clear
+
+read_joystick:  .block
+                lda os_unused   ; Flags ($0290 - unused by Electron OS)
+                                ; %.a....jj    %jj = joystick interface to use
+                                ;                a = 0=ADC, 1=9-pin joysticks
+                and #3
+                tay
+                lda fred_offsets,y; offset of joystick I/O by joystick index
+                                  ; (see table on p6 of Elk Expansion manual)
+                tay
+                lda $FC00,y
+                and table_1_2_4_8_16,x
+                beq L83EF
+                lda #$FF
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L83EF:
+                lda #0
+                rts
+
+;-------------------------------------------------------------------------
+
+table_1_2_4_8_16:.byte 1
+                .byte 2
+                .byte 4
+                .byte 8
+                .byte $10
+rom_banks_table:.byte 2
+                ; table holding ROM bank numbers for 5 unused ROMs
+                .byte 3         ; first expansion socket
+                .byte 8         ; keyboard
+                .byte 9         ; keyboard
+                .byte $A        ; lower-priority BASIC
+key_chars_table:.byte 0, 0, 0, 0, 0, 0, 0, 0; 0
+                .byte 0, 0, 0, 0, 0, 0, 0, 0; 8
+                .byte $51, $33, $34, $35, 0, $38, 0, $2D; 16
+                .byte 0, 0, 0, 0, 0, 0, 0, 0            ; 24
+                .byte 0, $57, $45, $54, $37, $39, $49, $30; 32
+                .byte $5F, 0, 0, 0, 0, 0, 0, 0            ; 40
+                .byte $31, $32, $44, $52, $36, $55, $4F, $50; 48
+                .byte 0, 0, 0, 0, 0, 0, 0, 0                ; 56
+                .byte 0, $41, $58, $46, $59, $4A, $4B, $40  ; 64
+                .byte $3A, 0, 0, 0, 0, 0, 0, 0              ; 72
+                .byte 0, $53, $43, $47, $48, $4E, $4C, $3B  ; 80
+                .byte 0, 0, 0, 0, 0, 0, 0, 0                ; 88
+                .byte 0, $5A, $20, $56, $42, $4D, $2C, $2E  ; 96
+                .byte $2F, 0, 0, 0, 0, 0, 0, 0              ; 104
+                .byte $1B, 0, 0, 0, 0, 0, 0, 0              ; 112
+                .byte $5C, 0                                ; 120
+
+;-------------------------------------------------------------------------
+
+                ldx #$6D        ; TODO: error index
+                jmp do_error
+
+;-------------------------------------------------------------------------
+
+; Call routine from command table
+; Entry: X = offset of address in table
+
+call_command_table_routine:.block
+                lda command_table,x; "BUFFER"
+                pha
+                lda command_table+1,x
+                pha
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+svc_help:
+                tya
+                pha
+                jsr is_string_empty; Check if command line tail is empty.
+                                   ; Entry: ($f2),y = command line tail
+                                   ; Exit:  C=0 - something on command line
+                                   ;        C=1 - nothing on command line
+                bcs L84C2       ; taken if *HELP command line empty
+
+L848B:
+                ldx #0
+
+L848D:
+                tya
+                pha
+                php
+                jsr find_command; Try to find command in commands table
+                                ; Entry: ($f2),y = pointer to string
+                                ;        X = offset into command_table
+                                ; Exit:
+                bcs L84AD
+                plp
+                txa
+                pha
+                bcs L849D
+                jsr L8518
+
+L849D:
+                sec             ; Set carry - indicate routine should print its help
+                jsr call_command_table_routine; Call routine from command table
+                                              ; Entry: X = offset of address in table
+                jsr print_1_newline
+                pla
+                tax
+                inx
+                inx
+                pla
+                tay
+                sec
+                bcs L848D
+
+L84AD:
+                plp
+                pla
+                tay
+
+L84B0:
+                iny
+                lda ($F2),y
+                cmp #$D
+                beq L84BD
+                cmp #' '
+                bne L84B0
+                beq L848B
+
+L84BD:
+                pla
+                tay
+                jmp svc_nop
+
+;-------------------------------------------------------------------------
+
+L84C2:
+                jsr L8518
+                jsr print_following_string
+                .text "Printer,"
+                .byte 0
+                bit os_unused   ; Flags ($0290 - unused by Electron OS)
+                                ; %.a....jj    %jj = joystick interface to use
+                                ;                a = 0=ADC, 1=9-pin joysticks
+                bvs L84E0    ; taken if ADC not in use
+                jsr print_following_string
+                .text "ADC"
+                .byte 0
+                jmp L84E7
+
+L84E0:
+                jsr print_following_string
+                .text "J/S"
+                .byte 0
+L84E7:
+                jsr print_following_string
+                .text ",RS423"
+                .byte $D
+                .byte $A
+                .byte 0
+                ldx #$FE
+                jsr L84FD
+                pla
+                tay
+                jmp svc_nop
+
+;-------------------------------------------------------------------------
+
+L84FD:       .block
+                jsr osnewl
+                jsr print_1_space
+                jsr print_1_space
+                inx
+
+L8507:
+                inx
+                lda command_table,x; "BUFFER"
+                beq L8515
+                bmi L84FD
+                jsr oswrch
+                jmp L8507
+
+;-------------------------------------------------------------------------
+
+L8515:
+                jmp osnewl
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L8518:       .block
+                jsr L9317
+                jsr print_following_string
+aElectronExpansion:.byte $D
+                .byte $A
+                .text "Electron Expansion "
+                .byte 0
+                ldx #0
+
+L8536:
+                lda rom_version_string,x; "2.02"
+                beq L8541
+
+L853B:
+                jsr oswrch
+                inx
+                bne L8536
+
+L8541:
+                jmp osnewl
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L8544:
+                jsr L9317
+                jsr print_following_string
+aBuffer:        .byte $D
+                .byte $A
+                .text "  *BUFFER "
+                .byte 0
+                rts
+
+;-------------------------------------------------------------------------
+
+print_following_string:.block
+                sty L00B2
+                pla
+                sta wptr
+                pla
+                sta wptr+1
+                ldy #0
+
+print_following_string_loop:
+                jsr inc_wptr
+                lda (wptr),y
+                beq L856F
+                jsr oswrch
+                jmp print_following_string_loop
+
+;-------------------------------------------------------------------------
+
+L856F:
+                jsr inc_wptr
+                jmp (wptr)
+                .endblock
+
+;-------------------------------------------------------------------------
+
+svc_irq:
+                lda #2
+                bit poll_flags
+                bne L858A
+                lda LFC65
+                and serial_flags
+                bmi L858D
+                lsr a
+                bcs L859A
+                lsr a
+                bcs L85D9
+
+L858A:
+                jmp svc_nop
+
+;-------------------------------------------------------------------------
+
+L858D:
+                lda #4
+                bit LFC64
+                bne L8597
+                jsr L896C
+
+L8597:
+                jmp svc_claimed
+
+;-------------------------------------------------------------------------
+
+L859A:
+                lda #4
+                bit LFC6D
+                bne L85D3
+                jsr L8993
+                bcc L85BB
+                ldy #$F5
+                jsr read_os_variables; read printer destination flag
+                cpx #2
+                bne L85C3
+                jsr remove_printer_buffer_char
+                pha
+                php
+                jsr L8A50
+                plp
+                pla
+                bcs L85C3
+
+L85BB:
+                sta LFC63
+                ldx #0
+                jmp L85CB
+
+;-------------------------------------------------------------------------
+
+L85C3:
+                jsr L897D
+                jsr L8729
+                ldx #$FF
+
+L85CB:
+                ldy #$BF
+                jsr write_os_variable; write RS423 use flag
+                jmp svc_claimed
+
+;-------------------------------------------------------------------------
+
+L85D3:
+                jsr L897D
+                jmp svc_claimed
+
+;-------------------------------------------------------------------------
+
+L85D9:
+                ldx LFC63
+                lda xhw_serial_baud_rates
+                and #$F0
+                bne L85F4
+                txa
+                jsr L898E
+                jsr check_serial_input_buffer_free_space; Check if there's free space in the serial input buffer.
+                                                        ; Exit: C=1 if >=9 bytes free
+                bcs L85F1
+                lda #1
+                sta LFC6F
+
+L85F1:
+                jmp svc_claimed
+
+;-------------------------------------------------------------------------
+
+L85F4:
+                txa
+                pha
+                ldx xhw_serial_baud_rates
+                jsr write_40h_to_fc62
+                pla
+                ldy #7
+                jsr oseven
+                jmp svc_claimed
+
+;-------------------------------------------------------------------------
+
+svc_100Hz_poll:
+                tya
+                pha             ; save semaphore value
+                lda #$40
+                bit poll_flags
+                beq L8611
+                jsr handle_printer_buffer_parallel; called if bit 6 set
+
+L8611:
+                cli
+                lda #$20
+                bit poll_flags
+                beq L861C
+                jsr poll_adc    ; called if bit 5 set
+
+L861C:
+                lda #$10
+                bit poll_flags
+                beq L8626
+                jsr L8729    ; called if bit 4 set
+
+L8626:
+                pla
+                tay
+                jmp svc_nop
+
+;-------------------------------------------------------------------------
+
+svc_rs423_buffer:.block
+                jsr L896C
+                jsr L8729.L8730
+                jmp svc_claimed
+                .endblock
+
+;-------------------------------------------------------------------------
+
+svc_printer_buffer:.block
+
+                tya
+                pha
+                jsr L863E
+                pla
+                tay
+                jmp svc_claimed
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L863E:       .block
+                ldx os_printer_destination; set by *FX5
+                cpx #1
+                beq handle_printer_buffer_parallel; taken if parallel printer
+                cpx #2
+                bne L864F ; taken if not serial printer
+                jsr L896C
+                jsr L8729.L8730
+
+L864F:
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+handle_printer_buffer_parallel:.block
+                bit plus1_status
+                bmi L86AA    ; taken if printer busy
+                jsr remove_printer_buffer_char
+                bcs L86A1    ; taken if printer buffer was empty
+; EAUG says result undefined when removing from buffer?
+; But presumably the removed byte is actually returned.
+                sta plus1_printer
+                lda #0
+                sta plus1_status
+                lda #$10
+                sta plus1_status
+                ldx #5
+
+L8669:
+                txa
+                pha
+                jsr get_printer_buffer_contents_size
+                tya
+                bne L8675    ; taken if MSB>0
+;MSB=0
+                cpx #2
+                bcc L8697    ; taken if size<2
+
+L8675:
+                ldx #0
+
+L8677:
+                lda plus1_status
+                bpl L8681    ; taken if printer not busy
+                dex
+                bne L8677
+                beq L8697    ; JMP, in effect - printer didn't become ready quickly
+
+L8681:
+                jsr remove_printer_buffer_char
+                sta plus1_printer
+                lda #0
+                sta plus1_status
+                lda #$10
+                sta plus1_status
+                pla
+                tax
+                dex
+                bne L8669
+                pha
+
+L8697:
+                pla
+                lda #$40
+                jsr set_poll_flag
+                clc
+                jmp L8A50
+
+;-------------------------------------------------------------------------
+
+L86A1:
+                lda #$40
+                jsr clear_poll_flag
+                sec
+                jmp L8A50
+
+;-------------------------------------------------------------------------
+
+L86AA:
+                lda #$40
+                jmp set_poll_flag
+                .endblock
+
+;-------------------------------------------------------------------------
+
+poll_adc:       .block
+                ldx os_current_adc_channel
+                beq L870C ; not currently sampling ADC
+                bit os_unused   ; Flags ($0290 - unused by Electron OS)
+                                ; %.a....jj    %jj = joystick interface to use
+                                ;                a = 0=ADC, 1=9-pin joysticks
+                bvs L86C6    ; taken if 9-pin joysticks
+                bit plus1_status
+                bvs L870C ; taken if ADC conversion not ended
+                lda plus1_adc   ; Read: 8-bit ADC result
+                                ; Write: ADC channel to convert (4 = ch1, 5 = ch2, etc.)
+                sta os_adc_msbs-1,x
+                bvc L86E3    ; JMP, in effect
+
+L86C6:
+                lda os_unused   ; Flags ($0290 - unused by Electron OS)
+                                ; %.a....jj    %jj = joystick interface to use
+                                ;                a = 0=ADC, 1=9-pin joysticks
+                and #3          ; extract joystick interface
+                tay
+                lda fred_offsets,y; offset of joystick I/O by joystick index
+                                  ; (see table on p6 of Elk Expansion manual)
+                tay
+                lda $FC00,y     ; read joystick I/O - %...FRLDU
+                cpx #3
+                beq L86DB    ; taken if Y axis of joystick 2
+                cpx #1
+                bne L86DD    ; taken if Y axis of joystick 1
+
+L86DB:
+                lsr a           ; %....FRLD
+                lsr a           ; %.....FRL
+; TODO: Hmm... is that right???
+
+L86DD:
+                and #3
+                tay
+                lda adc_values_table,y
+
+L86E3:
+                sta os_adc_msbs-1,x
+                lda #0
+                sta os_last_adc_channel,x
+                stx os_last_adc_channel
+                ldy #3          ; 3 = ADC conversion complete event
+                jsr oseven
+                ldx os_last_adc_channel
+                dex
+                bne L8709
+                ldy #$BD
+                jsr read_os_variables; read max ADC channel number
+                txa
+                bne L8709    ; taken if max ADC channel>0
+; disable ADC polling
+                lda #$20
+                jsr clear_poll_flag
+                jmp L870C
+
+;-------------------------------------------------------------------------
+
+L8709:
+                jsr start_next_adc_channel
+
+L870C:
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+start_next_adc_channel:.block
+                cpx #5
+                bcc L8713
+                ldx #4
+
+L8713:
+                stx os_current_adc_channel
+                txa
+                beq L8724
+                bit os_unused   ; Flags ($0290 - unused by Electron OS)
+                                ; %.a....jj    %jj = joystick interface to use
+                                ;                a = 0=ADC, 1=9-pin joysticks
+                bvs L8724 ; taken if using 9-pin joysticks - don't actually start a conversion
+                lda plus1_adc_channel_values-1,x
+                sta plus1_adc   ; initiate ADC conversion
+
+L8724:
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+plus1_adc_channel_values:.byte 4
+                ; EAUG p269
+                .byte 5
+                .byte 6
+                .byte 7
+
+;-------------------------------------------------------------------------
+
+L8729:       .block
+                lda serial_flags
+                and #2
+                beq L8735
+
+L8730:
+                jsr check_serial_input_buffer_free_space; Check if there's free space in the serial input buffer.
+                                                        ; Exit: C=1 if >=9 bytes free
+                bcs L873B
+
+L8735:
+                lda #1
+                sta LFC6F
+                rts
+
+;-------------------------------------------------------------------------
+
+L873B:
+                lda #1
+                sta LFC6E
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+handle_osbyte_a3h:
+                lda os_x        ; Disable/Enable printer and ADC
+                cmp #$80
+                bne L8754
+                ldx os_y        ; Y value for osbyte/osword
+                beq L8757
+                dex
+                beq L8766
+                dex
+                beq L877A
+                dex
+                beq L8785
+
+L8754:
+                jmp svc_nop
+
+;-------------------------------------------------------------------------
+
+L8757:
+                lda poll_flags
+                pha
+                and #$FE
+                sta poll_flags
+                jsr L8A26
+                jmp L8772
+
+;-------------------------------------------------------------------------
+
+L8766:
+                lda poll_flags
+                pha
+                ora #1
+                sta poll_flags
+                jsr L8A05
+
+L8772:
+                pla
+                and #1
+                sta os_x
+                jmp svc_claimed
+
+;-------------------------------------------------------------------------
+
+L877A:
+                lda poll_flags
+                and #$FD
+                sta poll_flags
+                jmp svc_claimed
+
+;-------------------------------------------------------------------------
+
+L8785:
+                lda poll_flags
+                ora #2
+                sta poll_flags
+                jmp svc_claimed
+
+;-------------------------------------------------------------------------
+
+L8790:
+                jmp svc_nop
+
+;-------------------------------------------------------------------------
+
+handle_osbyte_80h:
+                lda os_x
+                bne L8790
+                bit os_unused   ; Flags ($0290 - unused by Electron OS)
+                                ; %.a....jj    %jj = joystick interface to use
+                                ;                a = 0=ADC, 1=9-pin joysticks
+                bvs L87B3    ; taken if using 9-pin joysticks
+                lda plus1_status
+                pha
+                bpl L87A5
+                jsr L863E    ; printer not busy, so sneak in a quick printer update...
+
+L87A5:
+                pla
+                lsr a
+                lsr a
+                lsr a
+                lsr a
+                and #3
+                eor #3
+                sta os_x
+                jmp svc_claimed
+
+;-------------------------------------------------------------------------
+
+L87B3:
+                lda os_unused   ; Flags ($0290 - unused by Electron OS)
+                                ; %.a....jj    %jj = joystick interface to use
+                                ;                a = 0=ADC, 1=9-pin joysticks
+                and #3
+                tay
+                lda fred_offsets,y; offset of joystick I/O by joystick index
+                                  ; (see table on p6 of Elk Expansion manual)
+                tay
+                lda $FC00,y     ; ? ....FRLDU
+                ldx #0
+                ror a           ; U ?....FRLD
+                ror a           ; D U?....FRL
+                bpl L87C8
+                bcs L87CD
+
+L87C8:
+                lsr a
+                lsr a
+                and #1
+                tax
+
+L87CD:
+                stx os_x
+                jmp svc_claimed
+
+;-------------------------------------------------------------------------
+
+handle_osbyte_10h:
+                ldx os_x        ; Select ADC channels which are to be sampled
+                jsr set_adc_sampling_channels
+                stx os_x
+                jmp svc_claimed
+
+;-------------------------------------------------------------------------
+
+set_adc_sampling_channels:.block
+                txa
+                beq L87E9    ; taken if ADC sampling disabled
+                pha
+                jsr start_next_adc_channel
+                lda #$20
+                jsr set_poll_flag; indicate ADC polling required
+                pla
+
+L87E9:
+                tax
+                ldy #$BD
+                jmp write_os_variable; write max ADC channel number
+                .endblock
+
+;-------------------------------------------------------------------------
+
+handle_osbyte_11h:
+                lda #0          ; Force an ADC conversion
+                sta os_last_adc_channel
+                ldx os_x
+                jsr start_next_adc_channel
+                lda #$20        ; ' '
+                jsr set_poll_flag; indicate ADC polling required
+                jmp svc_claimed
+
+;-------------------------------------------------------------------------
+
+handle_osbyte_6eh:
+                ldx os_x        ; ????
+                lda L0D6B
+                stx L0D6B
+                stx LFC73
+                sta os_x
+                jmp svc_claimed
+
+;-------------------------------------------------------------------------
+
+svc_osbyte:
+                lda os_a        ; A value for osbyte/osword
+                cmp #$80
+                bne L881A
+                jmp handle_osbyte_80h
+L881A:
+                cmp #$10
+                beq handle_osbyte_10h; Select ADC channels which are to be sampled
+                cmp #$11
+                beq handle_osbyte_11h; Force an ADC conversion
+                cmp #7
+                beq handle_osbyte_07h; Set RS423 baud rate for receiving data
+                cmp #8
+                beq handle_osbyte_08h; Set RS423 baud rate for sending data
+                cmp #$9C
+                beq handle_osbyte_9ch; Read/update 6850 ACIA control register and OS copy
+                cmp #2
+                beq handle_osbyte_02h; Select input stream
+                cmp #$6E
+                beq handle_osbyte_6eh; ????
+                cmp #$A3
+                bne svc_osbyte_done
+                jmp handle_osbyte_a3h; Disable/Enable printer and ADC
+svc_osbyte_done:
+                jmp svc_nop
+
+;-------------------------------------------------------------------------
+
+handle_osbyte_07h:
+                lda #$F0        ; Set RS423 baud rate for receiving data
+                sta os_y        ; Y value for osbyte/osword
+                jmp set_serial_baud_rate
+
+;-------------------------------------------------------------------------
+
+handle_osbyte_08h:
+                lda #$F         ; Set RS423 baud rate for sending data
+                sta os_y        ; Y value for osbyte/osword
+
+set_serial_baud_rate:
+                ldx os_x        ; X = baud rate index
+                cpx #$C
+                bcs L8867    ; taken if invalid baud rate index
+                lda os_y        ; get mask
+                eor #$FF        ; 0fh = receiving
+                                ; f0h = sending
+                and serial_baud_rates; discard uninteresting bits
+                sta os_x
+                lda baud_rates_by_index,x
+                and os_y        ; Y value for osbyte/osword
+                ora os_x
+                sta serial_baud_rates
+                sta xhw_serial_baud_rates
+
+L8867:
+                jmp svc_claimed
+
+;-------------------------------------------------------------------------
+
+handle_osbyte_02h:
+                lda os_x        ; Select input stream
+                pha             ; save input device flags
+                and #1
+                tax
+                ldy #$B1
+                jsr write_os_variable; write input source flags
+                pla                  ; restore input device flags
+                beq L88CE         ; taken if keyboard on/serial off
+; serial enabled
+                lda #1
+                sta LFC62
+                lda serial_flags
+                ora #2
+                sta serial_flags
+                sta LFC65
+                jsr L8729
+                lda #$10
+                jsr set_poll_flag
+                jmp svc_claimed
+
+;-------------------------------------------------------------------------
+
+handle_osbyte_9ch:
+                lda #$E3        ; RIE|TxCtrl|CtrDiv
+                cmp os_y        ; Y value for osbyte/osword
+                bne L88EF
+; Handle mask $e3 (%11100011): RIE, TxCtrl, CtrlDiv
+; The value being set is the WordSelect field
+; Don't allow the EOR value to affect any of the non-WordSelect bits.
+                bit os_x
+                bne L88CB
+                lda os_x        ; Get value, %000www00
+                lsr a           ; %0000www0
+                lsr a           ; %00000www
+                nop
+                tax
+                jsr write_10h_to_fc62
+                lda LFC60
+                and #%11100000
+                sta os_y        ; Y value for osbyte/osword
+                jsr write_10h_to_fc62
+                lda L891B,x
+                and #$1F
+                ora os_y        ; Y value for osbyte/osword
+                sta LFC60
+                lda LFC60
+                and #$F0
+                ldy L891B,x
+                bmi L88C6
+                ora #$F
+
+L88C6:
+                ora #7
+                sta LFC60
+
+L88CB:
+                jmp svc_claimed
+
+;-------------------------------------------------------------------------
+
+L88CE:
+                lda #2
+                sta LFC62
+                jsr write_20h_to_fc62
+                jsr write_40h_to_fc62
+                lda serial_flags
+                and #$FD
+                sta serial_flags
+                sta LFC65
+                jsr L8729
+                lda #$10
+                jsr clear_poll_flag
+                jmp svc_claimed
+
+;-------------------------------------------------------------------------
+
+L88EF:
+                lda #$9F
+                cmp os_y        ; Y value for osbyte/osword
+                bne L88CB
+; Handle mask $9f (%10011111): RIE, WordSelect, CtrlDiv
+; The value being set is TxCtrl.
+; Don't allow the EOR value to affect any of the non-TxCtrl bits.
+                bit os_x
+                bne L88CB
+                lda os_x
+                cmp #$60        ; %.11..... = reset
+                beq L8907    ; taken if reset
+                lda #$70
+                sta LFC62
+                jmp L88CB
+
+;-------------------------------------------------------------------------
+
+L8907:
+                lda #$64
+                sta LFC62
+                jmp L88CB
+
+;-------------------------------------------------------------------------
+
+baud_rates_by_index:.byte $BB
+                .byte 0
+                .byte $33
+                .byte $44
+                .byte $66
+                .byte $88
+                .byte $99
+                .byte $BB
+                .byte $CC
+                .byte $11
+                .byte $55
+                .byte $AA
+L891B:      .byte %00000010
+                .byte %00000110
+                .byte %10000010
+                .byte %10000110
+                .byte %00010011
+                .byte %10010011
+                .byte %10000011
+                .byte %10000111
+
+;-------------------------------------------------------------------------
+
+; Reset serial hardware
+; Entry: C=0 if soft BREAK, C=1 if hard BREAK/power on
+
+reset_serial:   .block
+                jsr write_10h_to_fc62
+                lda #$93
+                sta LFC60
+                lda #7
+                sta LFC60
+                lda #$8F
+                sta LFC64
+                lda serial_baud_rates
+                bcc L893C
+                lda #$BB
+
+L893C:
+                sta serial_baud_rates
+                sta xhw_serial_baud_rates
+                jsr write_20h_to_fc62
+                jsr write_30h_to_fc62
+                jsr write_40h_to_fc62
+                lda #$80
+                sta serial_flags
+                sta LFC65
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+write_20h_to_fc62:.block
+                lda #$20
+                sta LFC62
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+write_30h_to_fc62:.block
+                lda #$30
+                sta LFC62
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+write_40h_to_fc62:.block
+                lda #$40
+                sta LFC62
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+write_10h_to_fc62:.block
+                lda #$10
+                sta LFC62
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L896C:       .block
+                lda serial_flags
+                ora #1
+                sta serial_flags
+                sta LFC65
+                lda #4
+                sta LFC62
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L897D:       .block
+                lda serial_flags
+                and #$FE
+                sta serial_flags
+                sta LFC65
+                lda #8
+                sta LFC62
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L898E:       .block
+                ldx #1
+                jmp (insv)
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L8993:       .block
+                clv
+                ldx #2
+                jmp (remv)
+                .endblock
+
+;-------------------------------------------------------------------------
+
+remove_printer_buffer_char:.block
+                clv             ; V=0 to remove value
+                ldx #3          ; Printer buffer
+                jmp (remv)
+                .endblock
+
+;-------------------------------------------------------------------------
+
+; Check if there's free space in the serial input buffer.
+; Exit: C=1 if >=9 bytes free
+
+check_serial_input_buffer_free_space:.block
+                jsr get_serial_input_buffer_free_space
+                cpy #1
+                bcs L89A8 ; taken if buffer free >=256
+                cpx #9
+
+L89A8:
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+get_printer_buffer_contents_size:.block
+                ldx #3          ; Printer buffer
+                clc             ; C=0 - get length of buffer contents
+                clv             ; V=0 - count, not purge
+                jmp (cnpv)
+                .endblock
+
+;-------------------------------------------------------------------------
+
+get_serial_input_buffer_free_space:.block
+                ldx #1          ; serial input buffer
+                sec             ; C=1 - get buffer free space
+                clv             ; V=0 - count, not purge
+                jmp (cnpv)
+                .endblock
+
+;-------------------------------------------------------------------------
+
+set_poll_flag:  .block
+                ora poll_flags
+                ldx poll_flags
+                sta poll_flags
+                txa
+                and #$F0
+                bne L89CA
+
+increment_polling_semaphore:
+                lda #$16        ; increment paged ROM polling semaphore
+                                ; (EAUG p35)
+                jsr osbyte
+
+L89CA:
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+clear_poll_flag:.block
+                tax
+                lda #$F0
+                bit poll_flags
+                beq decrement_polling_semaphore.L89E5
+                txa
+                eor #$FF
+                and poll_flags
+                sta poll_flags
+                and #$F0
+                bne decrement_polling_semaphore.L89E5
+                .endblock
+
+;-------------------------------------------------------------------------
+
+decrement_polling_semaphore:.block
+                lda #$17        ; decrement paged ROM polling semaphore
+                                ; (EAUG p35)
+                jsr osbyte
+
+L89E5:
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+svc_brk:
+                lda #1
+                bit poll_flags
+                bne L8A02    ; taken if poll_flags bit 0 set
+; call 8a26, saving/restoring the OSBYTE values
+                lda os_a        ; A value for osbyte/osword
+                pha
+                lda os_x
+                pha
+                lda os_y        ; Y value for osbyte/osword
+                pha
+                jsr L8A26
+                pla
+                sta os_y        ; Y value for osbyte/osword
+                pla
+                sta os_x
+                pla
+                sta os_a        ; A value for osbyte/osword
+
+L8A02:
+                jmp svc_nop
+
+;-------------------------------------------------------------------------
+
+L8A05:       .block
+                pha
+                txa
+                pha
+                tya
+                pha
+                lda poll_flags
+                bmi L8A20
+                pha
+                ora #$80
+                sta poll_flags
+                pla
+                beq L8A20
+                jsr decrement_polling_semaphore
+                lda #1
+                sta LFC6F
+
+L8A20:
+                pla
+                tay
+                pla
+                tax
+                pla
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L8A26:       .block
+                pha
+                txa
+                pha
+                tya
+                pha
+                lda poll_flags
+                bpl L8A3D    ; taken if bit 7 clear
+                and #$7F
+                sta poll_flags
+                beq L8A3D    ; taken if all poll flags now 0
+                jsr set_poll_flag.increment_polling_semaphore
+                jsr L8729
+
+L8A3D:
+                pla
+                tay
+                pla
+                tax
+                pla
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+; Write OS variable.
+; Entry: Y = variable index, same as higher-numbered OSBYTEs
+;        X = value to write
+
+write_os_variable:.block
+                txa
+                sta $190,y
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+; Read OS variables.
+; Entry: Y = variable index, same as higher-numbered OSBYTEs
+; Exit:  X = value of variable
+;        Y = value of following variable
+
+read_os_variables:.block
+                ldx $190,y
+                lda $191,y
+                tay
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L8A50:       .block
+                ror os_buffer_busy_flags+3; indicate printer buffer is busy
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L8A54:
+                stx L0154
+                ldy L00A8
+                jmp L0150
+
+;-------------------------------------------------------------------------
+
+                pha
+                stx L0154
+                ldy L00A8
+                jsr L014E
+                pla
+                sta ($F6),y
+                ldy #0
+                sty L00F4
+                jsr osrdsc
+                ldx #0
+                rts
+
+;-------------------------------------------------------------------------
+
+embedded_pbuf_rom: .block
+                .logical $8000
+                .byte 0
+                .byte 0
+                .byte 0
+
+;-------------------------------------------------------------------------
+
+                jmp L8036
+
+;-------------------------------------------------------------------------
+
+                .byte $82       ; ROM type
+                .byte <pbuf_copyright
+                .byte $10
+                .text "PBUF"
+                .byte 0
+                .text "1.00"
+pbuf_copyright:
+                .byte 0
+                .text "(C) Slogger 1986"
+                .byte 0
+                .byte $FF
+header_end:
+L8025:       .word L80AE
+                .word L80EA
+L8029:       .word L813C
+L802B:      .word 0
+L802D:      .word 0
+L802F:      .word 0
+L8031:      .byte 0
+L8032:      .byte 0
+L8033:      .byte $A0
+L8034:      .byte $73
+L8035:      .byte $1E
+
+;-------------------------------------------------------------------------
+
+L8036:
+                cmp #1
+                bne L808C
+                pha
+                txa
+                pha
+                tya
+                pha
+                lda #168
+                ldx #0
+                ldy #$FF
+                jsr osbyte
+                stx L00A8
+                sty L00A8+1
+                ldx #0
+                ldy #$3F
+
+L8050:
+                lda L8025,x
+                sta (L00A8),y
+                iny
+                lda L8025+1,x
+                sta (L00A8),y
+                iny
+                lda $f4
+                sta (L00A8),y
+                iny
+                inx
+                inx
+                cpx #6
+                bne L8050
+
+L8067:
+                lda insv-1,x
+                sta L802B-1,x
+                dex
+                bne L8067
+                lda #$3F
+                sta insv+0
+                lda #$42
+                sta remv+0
+                lda #$45
+                sta cnpv+0
+                lda #$FF
+                sta insv+1
+                sta remv+1
+                sta cnpv+1
+                bne L80A8
+
+L808C:
+                cmp #3
+                bne L80AD
+                pha
+                txa
+                pha
+                tya
+                pha
+                jsr L817E
+                bne L809F
+                lda L8031
+                beq L80A8
+
+L809F:
+                lda #143
+                ldx #$14
+                ldy #0
+                jsr osbyte
+
+L80A8:
+                pla
+                tay
+                pla
+                tax
+                pla
+
+L80AD:
+                rts
+
+;-------------------------------------------------------------------------
+
+L80AE:
+                cpx #3
+                beq L80B5
+                jmp (L802B)
+
+;-------------------------------------------------------------------------
+
+L80B5:
+                bit L8031
+                bpl L80BC
+                sec
+                rts
+
+;-------------------------------------------------------------------------
+
+L80BC:
+                php
+                sei
+
+L80BE:
+                sta L818D
+                pha
+                inc L80BE+1
+                bne L80DA
+                ldx L80BE+2
+                inx
+                cpx L8033
+                bne L80D7
+                lda #<L818D
+                sta L80BE+1
+                ldx #>L818D
+
+L80D7:
+                stx L80BE+2
+
+L80DA:
+                jsr L817E
+                bne L80E4
+                lda #$80
+                sta L8031
+
+L80E4:
+                ldx #3
+                pla
+                plp
+                clc
+                rts
+
+;-------------------------------------------------------------------------
+
+L80EA:
+                cpx #3
+                beq L80F1
+                jmp (L802D)
+
+;-------------------------------------------------------------------------
+
+L80F1:
+                php
+                sei
+                php
+                bit L8032
+                bmi L8138
+                jsr L817E
+                bne L8103
+                bit L8031
+                bpl L8138
+
+L8103:
+                lda L818D
+                plp
+                bvs L8133
+                pha
+                inc L8103+1
+                bne L8122
+                ldx L8103+2
+                inx
+                cpx L8033
+                bne L811F
+                lda #<L818D
+                sta L8103+1
+                ldx #>L818D
+
+L811F:
+                stx L8103+2
+
+L8122:
+                jsr L817E
+                bne L812C
+                ldy #0
+                jsr oseven
+
+L812C:
+                lda #0
+                sta L8031
+                pla
+                tay
+
+L8133:
+                plp
+                ldx #3
+                clc
+                rts
+
+;-------------------------------------------------------------------------
+
+L8138:
+                plp
+                plp
+                sec
+                rts
+
+;-------------------------------------------------------------------------
+
+L813C:
+                php
+                cpx #3
+                beq L8145
+                plp
+                jmp (L802F)
+
+;-------------------------------------------------------------------------
+
+L8145:
+                plp
+                bvc L8149
+                rts
+
+;-------------------------------------------------------------------------
+
+L8149:
+                php
+                sec
+                lda L80BE+1
+                sbc L8103+1
+                tax
+                lda L80BE+2
+                sbc L8103+2
+                tay
+                bcs L8165
+                txa
+                adc L8034
+                tax
+                tya
+                adc L8035
+                tay
+
+L8165:
+                plp
+                php
+                bcc L817C
+                stx L8173+1
+                sty L8179+1
+                sec
+                lda L8034
+
+L8173:
+                sbc #0
+                tax
+                lda L8035
+
+L8179:
+                sbc #0
+                tay
+
+L817C:
+                plp
+                rts
+
+;-------------------------------------------------------------------------
+
+L817E:       .block
+                lda L80BE+1
+                cmp L8103+1
+                bne L818C
+                lda L80BE+2
+                cmp L8103+2
+
+L818C:
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L818D:
+                .endlogical
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L8BFF:       .block
+                ldx #$1D
+
+L8C01:
+                lda L8A54,x
+                sta L0138,x
+                dex
+                bpl L8C01
+                lda L00F4
+                sta L014D
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+cmd_buffer:
+                bcc L8C2F
+                jsr L8544
+                ldy #0
+
+L8C17:
+                lda asc_947F,y  ; "ON"
+                beq L8C2E
+                jsr L8544
+
+L8C1F:
+                lda asc_947F,y  ; "ON"
+                bmi L8C2A
+                jsr oswrch
+                iny
+                bne L8C1F
+
+L8C2A:
+                iny
+                iny
+                bne L8C17
+
+L8C2E:
+                rts
+
+;-------------------------------------------------------------------------
+
+L8C2F:
+                ldx #$4F
+                jsr is_string_empty; Check if command line tail is empty.
+                                   ; Entry: ($f2),y = command line tail
+                                   ; Exit:  C=0 - something on command line
+                                   ;        C=1 - nothing on command line
+                beq L8C40
+                ldx #$27
+                jsr find_command; Try to find command in commands table
+                                ; Entry: ($f2),y = pointer to string
+                                ;        X = offset into command_table
+                                ; Exit:
+                bcc L8C40
+                jmp L80D6
+
+;-------------------------------------------------------------------------
+
+L8C40:
+                lda L00F6
+                pha
+                lda L00F7
+                pha
+                jsr call_command_table_routine; Call routine from command table
+                                              ; Entry: X = offset of address in table
+                pla
+                sta L00F7
+                pla
+                sta L00F6
+                rts
+
+;-------------------------------------------------------------------------
+
+cmd_on:
+                tya
+                pha
+                jsr L8DE8
+                jsr L8F13
+                jsr L8D9D
+                bcs L8C62
+                ldx #$9E        ; TODO: error index
+                jmp do_error
+
+;-------------------------------------------------------------------------
+
+L8C62:
+                pla
+                tay
+                jsr is_string_empty; Check if command line tail is empty.
+                                   ; Entry: ($f2),y = command line tail
+                                   ; Exit:  C=0 - something on command line
+                                   ;        C=1 - nothing on command line
+                bcc L8C90
+                lda #$F
+                sta L00A8
+                lda #0
+                sta L00AA
+
+L8C71:
+                lda #0
+                sta L00F6
+                jsr L8F6E
+                bcs L8C81
+                jsr L8D62
+                bcc L8CD0
+                inc L00AA
+
+L8C81:
+                dec L00A8
+                bpl L8C71
+                ldx #$28        ; TODO: error index
+                lda L00AA
+                bne L8C8D
+                ldx #0
+
+L8C8D:
+                jmp do_error
+
+;-------------------------------------------------------------------------
+
+L8C90:
+                jsr L919C
+                sta L00A8
+                jsr L8F6E
+                bcc L8C9F
+                ldx #0          ; TODO: error index
+                jmp do_error
+
+;-------------------------------------------------------------------------
+
+L8C9F:
+                jsr L8D62
+                bcc L8CD0
+                jsr print_following_string
+                .byte $D
+                .byte $A
+                .text "ROM image present...overwrite ? "
+                .byte 0
+                jsr L9054
+                beq L8CD0
+                rts
+
+;-------------------------------------------------------------------------
+
+L8CD0:
+                php
+                sei
+                lda #0
+                sta L00F6
+                lda #$80
+                sta L00F7
+                lda #<embedded_pbuf_rom
+                sta L00AA
+                lda #>embedded_pbuf_rom
+                sta L00AB
+                lda #<L8D01
+                sta L00AD
+                lda #>L8D01
+                sta L00AC
+                beq L8CEE
+                inc L00AD
+
+L8CEE:
+                ldy #0
+                lda (L00AA),y
+                jsr L0140
+                inc L00F6
+                bne L8CFB
+                inc L00F7
+
+L8CFB:
+                inc L00AA
+                bne L8D01
+                inc L00AB
+
+L8D01:
+                dec L00AC
+                bne L8CEE
+                dec L00AD
+                bne L8CEE
+                jsr L8F30
+; TODO: will refer to something in the embedded pbuf ROM
+                lda #<embedded_pbuf_rom.L8033
+                sta L00F6
+                lda #>embedded_pbuf_rom.L8033
+                sta L00F7
+                lda L00AA
+                pha
+                jsr L0140
+                inc L00F6
+                inc L00F6
+                sec
+                lda #0
+                sbc #$8D        ; TODO: ????
+                pha
+                lda L00AA
+
+L8D26:; TODO: ????
+                sbc #$81
+                jsr L0140
+                dec L00F6
+                pla
+                jsr L0140
+                pla
+                sec
+                sbc #$80        ; TODO: ????
+                lsr a
+                lsr a
+                tax
+                jsr L9289
+                jsr print_following_string
+
+;-------------------------------------------------------------------------
+
+aKBufferCreatedInPage:.text "k buffer created in Page "
+                .byte 0
+
+;-------------------------------------------------------------------------
+
+                ldx L00A8
+                jsr L9289
+                jsr print_1_newline
+                plp
+                rts
+
+;-------------------------------------------------------------------------
+
+L8D62:       .block
+                lda #$07
+                sta L00F6
+                lda #$80
+                sta L00F7
+                jsr L0138
+                sta L00F6
+                ldx #0
+
+L8D71:
+                jsr L0138
+                cmp copyright,x
+                clc
+                bne L8D81
+                inc L00F6
+                inx
+                cpx #4
+                bne L8D71
+
+L8D81:
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L8D82:       .block
+                lda os_shadow_ram_flag
+                beq L8D9B
+                lda L0DDE
+                cmp #<insv_handler
+                bne L8D9B
+                lda L0DDF
+                cmp #>insv_handler
+                bne L8D9B
+                ldx insv+1
+                inx
+                beq L8D9C
+
+L8D9B:
+                clc
+
+L8D9C:
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L8D9D:       .block
+                jsr L8BFF
+                lda #$F
+                sta L00A8
+
+L8DA4:
+                jsr L8DCC
+                bcc L8DAD
+                dec L00A8
+                bpl L8DA4
+
+L8DAD:
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+                lda #0
+                sta L00F6
+                lda #$FF
+                jsr L0140
+                jsr L0138
+                cmp #$FF
+                php
+                lda #0
+                jsr L0140
+                plp
+                bne L8DC7
+                clc
+                rts
+
+;-------------------------------------------------------------------------
+
+L8DC7:
+                ldx #$3F        ; TODO: error index
+                jmp do_error
+
+;-------------------------------------------------------------------------
+
+L8DCC:       .block
+                lda #$000
+                sta L00F6
+                lda #$80
+                sta L00F7
+                ldx #0
+
+L8DD6:
+                jsr L0138
+                cmp embedded_pbuf_rom,x
+                sec
+                bne L8DE7
+                inc L00F6
+                inx
+                cpx #<embedded_pbuf_rom.header_end
+                bne L8DD6
+                clc
+
+L8DE7:
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L8DE8:       .block
+                clc
+                jsr L8F1F
+                stx L00A9
+                tya
+                ora L00A9
+                clc
+                beq L8DF9
+                ldx #$11
+                jmp do_error
+
+;-------------------------------------------------------------------------
+
+L8DF9:
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+cmd_flush:
+                jsr L8D82
+                bcc L8E02
+                jmp L9707
+
+;-------------------------------------------------------------------------
+
+L8E02:
+                jsr L8F25
+; TODO: embedded ROM? $80bf
+                lda #<embedded_pbuf_rom.L80BE+1
+                sta L00F6
+                lda #>embedded_pbuf_rom.L80BE+1
+                sta L00F7
+                lda #$8D
+                jsr L0140
+                inc L00F6
+                bne L8E18
+                inc L00F7
+
+L8E18:
+                lda #$81
+                jsr L0140
+; TODO: embedded ROM? $8104
+                lda #<embedded_pbuf_rom.L8103+1
+                sta L00F6
+                lda #>embedded_pbuf_rom.L8103+1
+                sta L00F7
+                lda #$8D
+                jsr L0140
+                inc L00F6
+                bne L8E30
+                inc L00F7
+
+L8E30:
+                lda #$81
+                jsr L0140
+; TODO: embedded ROM? $8031
+                lda #<embedded_pbuf_rom.L8031
+                sta L00F6
+                lda #>embedded_pbuf_rom.L8031
+                sta L00F7
+                lda #0
+                jmp L0140
+
+;-------------------------------------------------------------------------
+
+cmd_resume:
+                jsr L8D82
+                bcc L8E51
+                lda L0D6D
+                and #$7F
+                sta L0D6D
+                bpl L8E61
+
+L8E51:
+                jsr L8F25
+                lda #<embedded_pbuf_rom.L8032
+                sta L00F6
+                lda #>embedded_pbuf_rom.L8032
+                sta L00F7
+                lda #0
+                jsr L0140
+
+L8E61:
+                lda #$8F
+                ldx #$14
+                ldy #0
+                jmp osbyte      ; issue paged ROM service call $14
+                                ; Character placed in printer buffer
+
+;-------------------------------------------------------------------------
+
+cmd_pause:
+                jsr L8D82
+                bcc L8E7B
+                php
+                sei
+                lda L0D6D
+                ora #$80
+                sta L0D6D
+                plp
+                rts
+
+;-------------------------------------------------------------------------
+
+L8E7B:
+                jsr L8F25
+                lda #<embedded_pbuf_rom.L8032
+                sta L00F6
+                lda #>embedded_pbuf_rom.L8032
+                sta L00F7
+                lda #$80
+                jmp L0140
+
+;-------------------------------------------------------------------------
+
+cmd_off:
+                jsr L8DE8
+                jsr L8D82
+                bcs L8EA4
+                jsr L8F25
+                lda #7
+                sta L00F6
+                jsr L0138
+                sta L00F6
+                lda #$FF
+                jsr L0140
+
+L8EA4:
+                jmp L8F89
+
+;-------------------------------------------------------------------------
+
+cmd_unknown_8ea7:
+                jsr print_following_string
+                .byte $D
+                .byte $A
+                .text "Bytes free  : "
+                .byte 0
+                clc
+                jsr L8F1F
+                tya
+                pha
+                txa
+                pha
+                jsr L8F1E
+                tya
+                pha
+                txa
+                pha
+                jsr print_decimal_value
+                jsr print_following_string
+aBufferSize:    .byte $D
+                .byte $A
+                .text "Buffer size : "
+                .byte 0
+                pla
+                sta wptr
+                pla
+                sta wptr+1
+                clc
+                pla
+                adc wptr
+                tax
+                pla
+                adc wptr+1
+                tay
+                jsr print_decimal_value
+                lda #$D
+                jsr osasci
+                rts
+
+;-------------------------------------------------------------------------
+
+cmd_shadow:
+                jsr L8DE8
+                jsr L8F13
+                jsr L8D9D
+                ldx #$9E        ; TODO: error
+                bcc L8F10
+                ldx #$B5        ; TODO: error
+                lda os_shadow_ram_flag
+                beq L8F10
+                jmp L9569
+
+;-------------------------------------------------------------------------
+
+L8F10:
+                jmp do_error
+
+;-------------------------------------------------------------------------
+
+L8F13:       .block
+                jsr L8D82
+                bcc L8F1D
+                ldx #$CF        ; TODO: error
+                jmp do_error
+
+;-------------------------------------------------------------------------
+
+L8F1D:
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L8F1E:       .block
+                sec
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L8F1F:       .block
+                clv
+                ldx #3
+                jmp (cnpv)
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L8F25:       .block
+                jsr L8D9D
+                bcc L8F2F
+                ldx #$54        ; TODO: error index
+                jmp do_error
+
+;-------------------------------------------------------------------------
+
+L8F2F:
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L8F30:       .block
+                lda #$A0
+; TODO: can't follow this. Is it a RAM test?
+                sta L00AA
+                lda #$A0
+                sta L00F7
+                jsr L0138
+                pha
+                lda #$80
+                sta L00F7
+                jsr L0138
+                pha
+                lda #$55
+                jsr L0140
+                lda #$A0
+                sta L00F7
+                lda #$AA
+                jsr L0140
+                lda #$80
+                sta L00F7
+                jsr L0138
+                cmp #$55
+                bne L8F61
+                lda #$C0
+                sta L00AA
+
+L8F61:
+                pla
+                jsr L0140
+                lda #$A0
+                sta L00F7
+                pla
+                jsr L0140
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L8F6E:       .block
+                jsr L0138
+                pha
+                eor #$FF
+                sta L00A9
+                jsr L0140
+                jsr L0138
+                cmp L00A9
+                clc
+                beq L8F82
+                sec
+
+L8F82:
+                pla
+                php
+                jsr L0140
+                plp
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L8F89:       .block
+                php
+                sei
+                lda default_vectors_ptr
+                sta L00AA
+                lda default_vectors_ptr+1
+                sta L00AB
+                ldx #5
+                ldy #$2F
+
+L8F99:
+                lda (L00AA),y
+                sta insv,x
+                dey
+                dex
+                bpl L8F99
+                plp
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+cmd_rload:
+                bcc L8FC6
+                jsr print_following_string
+                .byte $D
+                .byte $A
+                .text "  *RLOAD <filename> R<n>"
+                .byte $D
+                .byte 0
+                rts
+
+;-------------------------------------------------------------------------
+
+L8FC6:
+                jsr L91DA
+                jsr L919C
+                sta L00A8
+                pha
+                jsr L8BFF
+                jsr L8DCC
+                bcs L900D
+                jsr print_following_string
+                .byte $D
+                .byte $A
+                .text "Print Buffer present...overwrite ? "
+                .byte 0
+                jsr L9054
+                beq L9007
+                pla
+                rts
+
+;-------------------------------------------------------------------------
+
+L9007:
+                jsr L8DE8
+                jsr L8F89
+
+L900D:
+                jsr L917E
+                lda #>rload_ram_buffer
+                sta rload_osfile_pblock+3
+                lda #$FF        ;load file
+                jsr call_osfile_1fe0
+                jsr L8BFF
+                sei
+                lda #<rload_ram_buffer
+                sta wptr+0
+                lda #>rload_ram_buffer
+                sta wptr+1
+; TODO: $8000
+                lda #$00
+                sta L00F6
+                lda #$80
+                sta L00F7
+                pla
+                sta L00A8
+                lda rload_osfile_pblock+$b
+                sta L00AB
+                lda rload_osfile_pblock+$a
+                beq L903D
+                inc L00AB
+
+L903D:
+                ldy #0
+                lda (wptr),y
+                jsr L0140
+                inc wptr
+                inc L00F6
+                bne L903D
+                inc wptr+1
+                inc L00F7
+                dec L00AB
+                bne L903D
+                cli
+                rts
+
+;-------------------------------------------------------------------------
+
+L9054:       .block
+                jsr osrdch
+                pha
+                jsr print_1_newline
+                pla
+                and #$DF
+                cmp #'Y'
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+cmd_roms:
+                bcc L9072
+                jsr print_following_string
+                .byte $D
+                .byte $A
+                .text "  *ROMS"
+                .byte $D
+                .byte 0
+                rts
+
+;-------------------------------------------------------------------------
+
+L9072:
+                jsr L8BFF
+                jsr print_1_newline
+                ldx #$F
+
+L907A:
+                stx L00A8
+                ldy #0
+                jsr L9289
+                lda #':'
+                jsr oswrch
+                jsr L8D62
+                php
+                bcs L9099
+                jsr print_following_string
+                .text "?????"
+                .byte 0
+                ldx #$E
+                bne L90B0
+
+L9099:
+                ldx #9
+
+L909B:
+                stx L00F6
+                jsr L0138
+                cmp #' '
+                bcc L90B0
+                cmp #$7F
+                bcs L90B0
+                jsr oswrch
+                inx
+                cpx #$1F
+                bne L909B
+
+L90B0:
+                jsr print_1_space
+                inx
+                cpx #'!'
+                bne L90B0
+                lda #'('
+                jsr oswrch
+                ldx L00A8
+                cpx #$B
+                beq L90C7
+                lda os_rom_types,x
+                rol a
+
+L90C7:
+                lda #0
+                adc #'0'
+                jsr oswrch
+                lda #')'
+                jsr oswrch
+                jsr print_1_space
+                lda #0
+                sta L00F6
+                jsr L8F6E
+                bcc L90EB
+                plp
+                php
+                bcc L910B
+                jsr L91F9
+                lda L00AB
+                sec
+                bcs L90F4
+
+L90EB:
+                jsr L8F30
+                lda L00AA
+                sec
+                sbc #$80
+                clc
+
+L90F4:
+                php
+                lsr a
+                lsr a
+                tax
+                jsr L9289
+                lda #'k'
+                jsr oswrch
+                plp
+                bcs L910B
+                jsr print_following_string
+                .text " Ram"
+                .byte 0
+L910B:
+                plp
+                jsr print_1_newline
+                ldx L00A8
+                dex
+                bmi L9117
+                jmp L907A
+
+;-------------------------------------------------------------------------
+
+L9117:
+                rts
+
+;-------------------------------------------------------------------------
+
+cmd_rsave:
+                bcc L913A
+                jsr print_following_string
+                .byte $D
+                .byte $A
+                .text "  *RSAVE R<n> <filename>"
+                .byte $D
+                .byte 0
+                rts
+
+;-------------------------------------------------------------------------
+
+L913A:
+                jsr L919C
+                jsr L91DA
+                jsr L91F9
+                jsr L917E
+                clc
+                lda L00AB
+                adc rload_osfile_pblock+$b
+                sta rload_osfile_pblock+$f
+                sei
+                lda #0          ; TODO: $8000
+                sta L00F6
+                lda #$80
+                sta L00F7
+                lda #<rload_ram_buffer
+                sta L00B2
+                lda #>rload_ram_buffer
+                sta L00B3
+
+L9160:
+                ldy #0
+                jsr L0138
+                sta (L00B2),y
+                inc L00F6
+                inc L00B2
+                bne L9160
+                inc L00F7
+                inc L00B3
+                dec L00AB
+                bne L9160
+                lda #0
+
+;-------------------------------------------------------------------------
+
+call_osfile_1fe0:.block
+                ldx #<rload_osfile_pblock
+                ldy #>rload_osfile_pblock
+                jmp osfile
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L917E:       .block
+                ldx #$11
+
+L9180:
+                lda L918A,x
+                sta rload_osfile_pblock,x
+                dex
+                bpl L9180
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L918A:
+                .word file_name_buffer ;file name
+                .dword $ffff8000 ;load
+                .dword $ffff8000 ;exec
+                .dword $ffff2000 ;start
+                .dword $ffff0000 ;end
+
+;-------------------------------------------------------------------------
+
+L919C:       .block
+                jsr is_string_empty; Check if command line tail is empty.
+                                   ; Entry: ($f2),y = command line tail
+                                   ; Exit:  C=0 - something on command line
+                                   ;        C=1 - nothing on command line
+                bcs L91D0
+                jsr skip_string_spaces; Check if next command line char is space or eol
+                                      ; Entry: ($f2),y = command line
+                                      ; Exit:  ($f2),y = next char
+                                      ;        Z=1 if char was CR or space
+                and #$5F
+                cmp #'R'
+                bne L91D0
+                jsr skip_string_spaces; Check if next command line char is space or eol
+                                      ; Entry: ($f2),y = command line
+                                      ; Exit:  ($f2),y = next char
+                                      ;        Z=1 if char was CR or space
+                beq L91D5
+                jsr atoi_1_digit; Convert 1 decimal digit to a value
+                                ; Entry: A = ASCII digit
+                                ; Exit:  A = value
+                                ;        C=1 if digit was invalid
+                bcs L91D5
+                sta L00A8
+                jsr skip_string_spaces; Check if next command line char is space or eol
+                                      ; Entry: ($f2),y = command line
+                                      ; Exit:  ($f2),y = next char
+                                      ;        Z=1 if char was CR or space
+                beq L91CD
+                jsr atoi_1_digit; Convert 1 decimal digit to a value
+                                ; Entry: A = ASCII digit
+                                ; Exit:  A = value
+                                ;        C=1 if digit was invalid
+                bcs L91D5
+                sta L00A9
+                lda L00A8
+                asl a
+                asl a
+                adc L00A8
+                asl a
+                adc L00A9
+                sta L00A8
+
+L91CD:
+                lda L00A8
+                rts
+
+;-------------------------------------------------------------------------
+
+L91D0:
+                ldx #$83        ; TODO: Bad command
+                jmp do_error
+
+;-------------------------------------------------------------------------
+
+L91D5:
+                ldx #$6D        ; TODO: Bad hex
+                jmp do_error
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L91DA:       .block
+                jsr is_string_empty; Check if command line tail is empty.
+                                   ; Entry: ($f2),y = command line tail
+                                   ; Exit:  C=0 - something on command line
+                                   ;        C=1 - nothing on command line
+                bcs L91EE
+                ldx #0
+
+L91E1:
+                jsr skip_string_spaces; Check if next command line char is space or eol
+                                      ; Entry: ($f2),y = command line
+                                      ; Exit:  ($f2),y = next char
+                                      ;        Z=1 if char was CR or space
+                beq L91F3
+                sta file_name_buffer,x
+                inx
+                cpx #$C
+                bne L91E1
+
+L91EE:
+                ldx #$90
+                jmp do_error
+
+;-------------------------------------------------------------------------
+
+L91F3:
+                lda #$D
+                sta file_name_buffer,x
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L91F9:       .block
+                jsr L8BFF
+                lda #0
+                sta wptr
+                lda #0
+                sta L00B2
+; TODO: $8000
+; TODO: $a000
+                lda #$80
+                sta wptr+1
+                lda #$A0
+                sta L00B3
+                lda #$40
+                sta L00AB
+
+L9210:
+                jsr L9227
+                sta L00AC
+                jsr L9232
+                cmp L00AC
+                bne L9226
+                inc wptr
+                inc L00B2
+                bne L9210
+                lda #$20
+                sta L00AB
+
+L9226:
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L9227:       .block
+                lda wptr
+                sta L00F6
+                lda wptr+1
+                sta L00F7
+                jmp L0138
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L9232:       .block
+                lda L00B2
+                sta L00F6
+                lda L00B3
+                sta L00F7
+                jmp L0138
+                .endblock
+
+;-------------------------------------------------------------------------
+
+; Try to find command in commands table
+; Entry: ($f2),y = pointer to string
+;        X = offset into command_table
+; Exit:
+
+find_command:   .block
+                stx L00A8
+                clc
+                jsr is_string_empty; Check if command line tail is empty.
+                                   ; Entry: ($f2),y = command line tail
+                                   ; Exit:  C=0 - something on command line
+                                   ;        C=1 - nothing on command line
+                sty L00A9
+
+L9245:
+                ldy L00A9
+                dex
+                dey
+
+L9249:
+                inx
+                iny
+                lda command_table,x; "BUFFER"
+                sec
+                beq done        ; taken if end of table reached
+                bmi L9269
+                eor ($F2),y
+                and #$5F
+                beq L9249
+                lda ($F2),y
+                cmp #'.'
+                beq L9271
+
+L925F:
+                inx
+                lda command_table,x; "BUFFER"
+                bpl L925F       ; taken if end of command name reached
+
+L9265:
+                inx
+                inx
+                bne L9245
+
+L9269:
+                lda ($F2),y
+                jsr isalpha     ; Check if char is alphabetic
+                                ; Entry: A = char of interest
+                                ; Exit:  C=0 if alpha, C=1 if not alpha
+                bcc L9265    ; taken if alpha
+                dey
+
+L9271:
+                iny
+                dex
+
+L9273:
+                inx
+                lda command_table,x; "BUFFER"
+                bpl L9273
+                clc
+
+done:
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+; Check if char is alphabetic
+; Entry: A = char of interest
+; Exit:  C=0 if alpha, C=1 if not alpha
+
+isalpha:        .block
+                pha             ; store char
+                and #$DF        ; convert lower case to upper case
+                cmp #'A'
+                bcc not_alpha   ; taken if not alpha
+                cmp #'['        ; 'Z'+1
+                bcc done        ; taken if alpha
+
+not_alpha:
+                sec
+
+done:
+                pla             ; restore char
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L9289:       .block
+                txa
+                ldx #$FF
+                sec
+
+L928D:
+                inx
+                sbc #$A
+                bcs L928D
+                adc #$A
+                clc
+                jsr L929A
+                tax
+                sec
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L929A:       .block
+                pha
+                txa
+                bcs L92A4
+                bne L92A4
+                lda #' '
+                bne L92A7
+
+L92A4:
+                sec
+                ora #'0'
+
+L92A7:
+                jsr oswrch
+                pla
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+print_decimal_value:.block
+                stx wptr
+                sty wptr+1
+                ldy #0
+                sty L00B2
+
+L92B4:
+                ldx #0
+
+L92B6:
+                lda wptr+1
+                cmp tens_table+1,y
+                bcc L92D7
+                bne L92C6
+                lda wptr
+                cmp tens_table,y
+                bcc L92D7
+
+L92C6:
+                lda wptr
+                sbc tens_table,y
+                sta wptr
+                lda wptr+1
+                sbc tens_table+1,y
+                sta wptr+1
+                inx
+                bne L92B6
+
+L92D7:
+                txa
+                bne L92DE
+                ldx L00B2
+                beq L92E3
+
+L92DE:
+                jsr L92EB
+                inc L00B2
+
+L92E3:
+                iny
+                iny
+                cpy #8
+                bcc L92B4
+                lda wptr
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L92EB:       .block
+                ora #'0'
+                jmp oswrch
+                .endblock
+
+;-------------------------------------------------------------------------
+
+tens_table:     .word 10000
+                .word 1000
+                .word 100
+                .word 10
+
+;-------------------------------------------------------------------------
+
+print_n_spaces:; unused?
+                pha
+                lda #' '
+
+L92FB:
+                jsr oswrch
+                dex
+                bne L92FB
+                pla
+                rts
+
+;-------------------------------------------------------------------------
+
+print_1_newline:.block
+                lda #$D
+                jmp osasci
+                .endblock
+
+;-------------------------------------------------------------------------
+
+print_1_space:  .block
+                pha
+                lda #' '
+                jsr oswrch
+                pla
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+inc_wptr:       .block
+                inc wptr
+                bne L9316
+                inc wptr+1
+
+L9316:
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L9317:       .block
+                pha
+                txa
+                pha             ; 01=X 02=A
+                tya
+                pha             ; 01=Y 02=X 03=A
+; TODO: $933a-1
+                lda #>exit-1
+                pha             ; 01=93 02=Y 03=X 04=A
+                lda #<exit-1
+                pha             ; 01=39 02=93 03=Y 04=X 05=A 06=RTSL 07=RTSH
+                ldy #5
+
+L9324:
+                tsx
+                lda $107,x
+                pha
+                dey
+                bne L9324
+; 01=Y 02=X 03=A 04=RTSL 05=RTSH 06=39 07=93 08=Y 09=X 0A=A 0B=RTSL 0C=RTSH
+;                                ^^
+                ldy #$A
+
+L932E:
+                lda $109,x
+                sta $10B,x
+                dex
+                dey
+                bne L932E
+                pla
+                pla
+exit:
+                pla
+                tay
+                pla
+                tax
+                pla
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L9340:
+                iny
+
+;-------------------------------------------------------------------------
+
+; Check if command line tail is empty.
+; Entry: ($f2),y = command line tail
+; Exit:  C=0 - something on command line
+;        C=1 - nothing on command line
+
+is_string_empty:.block
+
+                lda (L00F2),y ; read next value from command line
+                cmp #$D
+                beq L934C ; taken with C=1 if eol
+                cmp #' '
+                beq L9340    ; taken with C=1 if space - move to next byte and try again
+                clc
+
+L934C:
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+; Check if next command line char is space or eol
+; Entry: ($f2),y = command line
+; Exit:  ($f2),y = next char
+;        Z=1 if char was CR or space
+
+skip_string_spaces:.block
+                lda (L00F2),y
+                cmp #$D
+                beq L9356
+                iny
+                cmp #' '
+
+L9356:
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+do_error:
+                ldy #0
+                sty L0100
+                dex
+                dey
+
+L935E:
+                inx
+                iny
+                lda errors_table,x
+                sta $101,y
+                bne L935E
+                jmp L0100
+
+;-------------------------------------------------------------------------
+
+command_address: .macro value
+                .byte >\value-1,<\value-1
+                .endmacro
+                
+errors_table:   .byte $6E
+                .text "No Sideways RAM"; $00
+                .byte 0
+                .byte $6F
+                .text "Printer buffer active"; $11
+                .byte 0
+                .byte $70
+                .text "ROM image in RAM card"
+                .byte 0
+                .byte $71
+                .text "SWR write protected"
+                .byte 0
+                .byte $72
+                .text "Print buffer not set up"
+                .byte 0
+                .byte $73
+                .text "Bad hex" ; $6d
+                .byte 0
+                .byte $74
+                .text "Key missing"
+                .byte 0
+                .byte $FE
+                .text "Bad command"; ; $83
+                .byte 0
+                .byte $CC
+                .text "Bad filename"
+                .byte 0
+                .byte $75
+                .text "Printer Buffer in SWR"
+                .byte 0
+                .byte $76
+                .text "Shadow RAM not available"
+                .byte 0
+                .byte $77
+                .text "Printer Buffer in Shadow RAM"
+                .byte 0
+command_table:  .text "BUFFER"
+                .command_address cmd_buffer
+                .text "JOYSTICK"
+                .command_address cmd_joystick
+                .text "RLOAD"
+                .command_address cmd_rload
+                .text "ROMS"
+                .command_address cmd_roms
+                .text "RSAVE"
+                .command_address cmd_rsave
+                .byte 0
+asc_947F:       .text "ON"
+                .command_address cmd_on
+                .text "OFF"
+                .command_address cmd_off
+                .text "FLUSH"
+                .command_address cmd_flush
+                .text "PAUSE"
+                .command_address cmd_pause
+                .text "RESUME"
+                .command_address cmd_resume
+                .text "SHADOW"
+                .command_address cmd_shadow
+                .byte 0
+                .command_address cmd_unknown_8ea7
+joystick_subcommands:.text "SETUP"
+                .command_address cmd_joystick_setup
+                .text "TEST"
+                .command_address cmd_joystick_test
+                .byte 0
+
+;-------------------------------------------------------------------------
+
+strtoi:         .block
+
+                jsr is_string_empty; Check if command line tail is empty.
+                                   ; Entry: ($f2),y = command line tail
+                                   ; Exit:  C=0 - something on command line
+                                   ;        C=1 - nothing on command line
+                beq bad_hex
+                lda #0
+                sta wptr
+                sta wptr+1
+                jsr gsread      ; EAUG p12
+                bcs bad_hex     ; taken if eol
+                cmp #'&'
+                bne decimal
+; hex value
+                jsr gsread
+                bcs bad_hex     ; taken if eol
+                bcc got_digit   ; JMP, in effect
+
+hex_loop:
+                jsr gsread
+                bcs done        ; taken if eol
+
+got_digit:
+                jsr xtoi_1_digit; Convert 1 hex digit to a value
+                                ; Entry: A = ASCII digit
+                                ; Exit:  A = value
+                                ;        C=1 if digit was invalid
+                bcs bad_hex     ; taken if input error
+; wptr<<=4
+                asl wptr
+                rol wptr+1
+                bcs bad_hex     ; taken if overflow
+                asl wptr
+                rol wptr+1
+                bcs bad_hex     ; taken if overflow
+                asl wptr
+                rol wptr+1
+                bcs bad_hex     ; taken if overflow
+                asl wptr
+                rol wptr+1
+                bcs bad_hex     ; taken if overflow
+; wptr|=digit
+                adc wptr
+                sta wptr
+                bcc hex_loop    ; always a JMP???
+
+done:
+                lda wptr
+                rts
+
+;-------------------------------------------------------------------------
+
+bad_hex:
+                ldx #$6D        ; TODO: Bad hex
+                jmp do_error
+
+;-------------------------------------------------------------------------
+
+decimal:
+                cmp #'-'
+                php             ; save negative flag - Z=1 if negative
+                bne decimal_loop
+                jsr gsread
+                bcs bad_hex
+
+decimal_loop:
+                jsr atoi_1_digit; Convert 1 decimal digit to a value
+                                ; Entry: A = ASCII digit
+                                ; Exit:  A = value
+                                ;        C=1 if digit was invalid
+                bcs bad_hex
+                pha             ; save digit value
+                lda wptr+1
+                pha             ; save value MSB
+                lda wptr
+; wptr=wptr*2
+                asl a
+                rol wptr+1
+                bcs bad_hex     ; taken if overflow
+                asl a
+                rol wptr+1
+                bcs bad_hex     ; taken if overflow
+; wptr=wptr*2+wptr -> wptr*5
+                adc wptr
+                sta wptr
+                pla             ; restore value MSB
+                adc wptr+1
+                sta wptr+1
+                bcs bad_hex     ; taken if overflow
+; wptr=(wptr*2+wptr)*2 -> wptr*5*2 -> wptr*10
+                asl wptr
+                rol wptr+1
+                bcs bad_hex     ; taken if overflow
+; add in digit
+                pla             ; restore digit value
+                adc wptr
+                sta wptr
+                bcc L953D
+                inc wptr+1
+                beq bad_hex     ; taken if overflow
+
+L953D:
+                jsr gsread
+                bcc decimal_loop; taken if not eol
+                plp             ; restore negative flag
+                bne L9552    ; taken if positive
+; wptr=-wptr
+                sec
+                lda #0
+                sbc wptr
+                sta wptr
+                lda #0
+                sbc wptr+1
+                sta wptr+1
+
+L9552:
+                lda wptr
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+; Convert 1 decimal digit to a value
+; Entry: A = ASCII digit
+; Exit:  A = value
+;        C=1 if digit was invalid
+
+atoi_1_digit:   .block
+                jsr xtoi_1_digit; Convert 1 hex digit to a value
+                                ; Entry: A = ASCII digit
+                                ; Exit:  A = value
+                                ;        C=1 if digit was invalid
+                bcs L955C
+                cmp #$A
+
+L955C:
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+; Convert 1 hex digit to a value
+; Entry: A = ASCII digit
+; Exit:  A = value
+;        C=1 if digit was invalid
+
+xtoi_1_digit:   .block
+                cmp #'A'
+                bcc L9563
+                sbc #7
+
+L9563:
+                sec
+                sbc #'0'
+                cmp #$10
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L9569:
+                php
+                sei
+                lda #$A8        ; Read address of ROM pointer table
+                                ; (EAUG p57)
+                ldx #0
+                ldy #$FF
+                jsr osbyte
+                stx L00A8
+                sty L00A9
+                ldx #0
+                ldy #$3F        ; INSV/2*3
+                                ; (see EAUG p171)
+
+L957C:
+                lda L95EA,x
+                sta (L00A8),y ; store routine LSB
+                iny
+                lda L95EA+1,x
+                sta (L00A8),y ; store routine MSB
+                iny
+                lda L00F4
+                sta (L00A8),y ; store ROM bank
+                iny
+                inx
+                inx
+                cpx #6          ; written 3 vectors?
+                bne L957C
+                ldx #$80
+                ldy #0
+                bit L95E9
+
+L959A:
+                lda insv-$80,x      ; TODO: INSV-$80,x
+                jsr LFBFD    ; nonsense address in the Electron OS, but presumably meaningful with the rombox?
+                inx
+                cpx #$86
+                bne L959A
+; TODO: tidy these constants up?
+                lda #$3F
+                sta insv
+                lda #$42
+                sta remv
+                lda #$45
+                sta cnpv
+                lda #$FF
+                sta insv+1
+                sta remv+1
+                sta cnpv+1
+                jsr L9707
+                plp
+                jsr print_following_string
+                .text "12K buffer created in Shadow RAM"
+                .byte $D
+                .byte $A
+                .byte 0
+L95E9:
+                rts
+
+;-------------------------------------------------------------------------
+
+L95EA:          .word insv_handler ;
+                .word remv_handle
+                .word cnpv_handler
+
+;-------------------------------------------------------------------------
+
+insv_handler:
+                cpx #3
+                beq L95FE
+                php
+                sei
+                stx L0D6E
+                ldx #$81
+                jmp L96DD
+
+;-------------------------------------------------------------------------
+
+L95FE:
+                bit L0D6C
+                bpl L9605
+                sec
+                rts
+
+;-------------------------------------------------------------------------
+
+L9605:
+                php
+                sei
+                bit L95E9
+                ldx L02D8
+                ldy L0D6C
+                jsr LFBFD    ; nonsense address in the Electron OS, but presumably meaningful with the rombox?
+                pha
+                inc L02D8
+                bne L9626
+                ldx L0D6C
+                inx
+                cpx #$30
+                bne L9623
+                ldx #1
+
+L9623:
+                stx L0D6C
+
+L9626:
+                jsr L96F6
+                bne L9633
+                lda L0D6C
+                ora #$80
+                sta L0D6C
+
+L9633:
+                pla
+                plp
+                ldx #3
+                clc
+                rts
+
+;-------------------------------------------------------------------------
+
+remv_handle:
+                cpx #3
+                beq L9647
+                php
+                sei
+                stx L0D6E
+                ldx #$83
+                jmp L96DD
+
+;-------------------------------------------------------------------------
+
+L9647:
+                php
+                sei
+                php
+                bit L0D6D
+                bmi L9692
+                jsr L96F6
+                bne L9659
+                bit L0D6C
+                bpl L9692
+
+L9659:
+                clv
+                ldx L02CF
+                ldy L0D6D
+                jsr LFBFD    ; nonsense address in the Electron OS, but presumably meaningful with the rombox?
+                plp
+                bvs L968D
+                pha
+                inc L02CF
+                bne L9679
+                ldx L0D6D
+                inx
+                cpx #$30
+                bne L9676
+                ldx #1
+
+L9676:
+                stx L0D6D
+
+L9679:
+                jsr L96F6
+                bne L9683
+                ldy #0
+                jsr oseven
+
+L9683:
+                lda L0D6C
+                and #$7F
+                sta L0D6C
+                pla
+                tay
+
+L968D:
+                plp
+                ldx #3
+                clc
+                rts
+
+;-------------------------------------------------------------------------
+
+L9692:
+                plp
+                plp
+                ldx #3
+                sec
+                rts
+
+;-------------------------------------------------------------------------
+
+cnpv_handler:
+                php
+                cpx #3
+                beq L96A6
+                sei
+                stx L0D6E
+                ldx #$85
+                jmp L96DD
+
+;-------------------------------------------------------------------------
+
+L96A6:
+                plp
+                php
+                sei
+                bvc L96AD
+                plp
+                rts
+
+;-------------------------------------------------------------------------
+
+L96AD:
+                lda L0D6D
+                and #$7F
+                sta L00FA
+                sec
+                lda L02D8
+                sbc L02CF
+                tax
+                lda L0D6C
+                and #$7F
+                sbc L00FA
+                tay
+                bcs L96C9
+                adc #$2F
+                tay
+
+L96C9:
+                plp
+                php
+                bcc L96DB
+                stx L00FA
+                sty L00FB
+                lda #0
+                sbc L00FA
+                tax
+                lda #$2F
+                sbc L00FB
+                tay
+
+L96DB:
+                plp
+                rts
+
+;-------------------------------------------------------------------------
+
+L96DD:
+                pha
+                clv
+                ldy #0
+                jsr LFBFD    ; nonsense address in the Electron OS, but presumably meaningful with the rombox?
+                sta L0D6E+1
+                dex
+                jsr LFBFD    ; nonsense address in the Electron OS, but presumably meaningful with the rombox?
+                ldx L0D6E
+                sta L0D6E
+                pla
+                plp
+                jmp (L0D6E)
+
+;-------------------------------------------------------------------------
+
+L96F6:       .block
+                lda L02D8
+                cmp L02CF
+                bne L9706
+                lda L0D6C
+                eor L0D6D
+                and #$7F
+
+L9706:
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L9707:       .block
+                lda #1
+                sta L0D6C
+                sta L0D6D
+                lda #0
+                sta L02D8
+                sta L02CF
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+cmd_joystick_setup:
+                ldx #0
+                lda #4
+                ldy #0
+                ldx #1
+                jsr osbyte      ; disable cursor editing
+                ldx #1
+                lda #$F
+                jsr osbyte      ; flush input buffer
+                ldx #$1B
+                ldy #0
+                lda #$E5
+                jsr osbyte      ; make Escape return ASCII 27
+                lda #0
+                sta L00B3
+
+L9737:
+                txa
+                pha
+                jsr print_following_string
+aPress:         .text "Press "
+                .byte 0
+; Print action name
+                lda action_name_offsets,x
+                tax
+
+L9747:
+                lda action_names,x; "UP   "
+                beq wait_for_key_loop
+                jsr oswrch
+                inx
+                bne L9747
+
+wait_for_key_loop:
+                ldx #0
+                ldy #0
+                jsr call_osbyte_81; poll for keys
+                cpy #$FF
+                bne got_key     ; taken with X=ASCII code if any key pressed
+                ldx #$FF
+                ldy #$FF
+                jsr call_osbyte_81; check for SHIFT
+                ldx #1
+                cpy #$FF
+                beq got_key     ; taken with X=1 if SHIFT pressed
+                ldx #$FE
+                ldy #$FF
+                jsr call_osbyte_81; check for CTRL
+                ldx #2
+                cpy #$FF
+                beq got_key     ; taken with X=2 if CTRL pressed
+                ldx #$BF
+                ldy #$FF
+                jsr call_osbyte_81; check for Caps Lock
+                ldx #3
+                cpy #$FF
+                bne wait_for_key_loop; taken if no keys pressed
+; fall through with X=3 if Caps Lock pressed
+
+got_key:
+                cpy #$1B
+                bne L978D    ; taken if Escape wasn't pressed
+                ldx #$1B        ; set X=27, indicating Escape
+                jsr clear_escape_condition
+
+L978D:
+                cpx L00B3
+                beq wait_for_key_loop
+                stx L00B3
+                jsr print_1_space
+                ldx #0
+
+L9798:
+                lda keys_table,x
+                beq wait_for_key_loop
+                cmp L00B3
+                beq L97AD
+
+L97A1:
+                inx
+                lda keys_table,x
+                bpl L97A1
+                inx
+                bne L9798
+
+L97AA:
+                jsr oswrch
+
+L97AD:
+                inx
+
+L97AE:
+                lda keys_table,x
+                bpl L97AA
+                tay
+                pla
+                tax
+                tya
+                ldy rom_banks_table,x; table holding ROM bank numbers for 5 unused ROMs
+                and #$7F             ; mask off bit 7
+                sta os_rom_types,y   ; store key for this action
+                jsr print_1_newline
+                inx
+                cpx #5          ; for all 5 actions...
+                beq L97CA
+                jmp L9737
+
+;-------------------------------------------------------------------------
+
+L97CA:
+                lda #4
+                ldy #0
+                ldx #0
+                jsr osbyte      ; restore cursor editing
+                ldx #0
+                ldy #0
+                lda #$E5
+                jsr osbyte      ; reinstate Escape behaviour
+                rts
+
+;-------------------------------------------------------------------------
+
+cmd_joystick_test:.block
+                lda os_screen_mode
+                pha
+                jsr print_following_string
+                .byte 22, 6     ; 0 ; MODE 6
+                .byte 31, 8, 5  ; 0 ; PRINT TAB(8,5)
+                .text "J O Y S T I C K   T E S T"
+                .byte 0
+                ldx #0
+                ldy #$A
+                jsr set_cursor_visibility; Hide cursor
+
+loop:
+                bit L00FF
+                bmi L984A    ; Taken if Escape pressed
+                ldx #0          ; X = action index
+
+check_actions:
+                jsr print_following_string
+                .byte 31, 17, 0 ; 0 ; PRINT TAB(17,???)
+                txa
+                pha             ; Save action index
+                clc
+                adc #$A         ; Y coord = 10 + action index
+                jsr oswrch
+                jsr read_joystick; Read joystick
+                                 ; Entry: X = action index
+                                 ; Exit:  A=$00 if bit set, A=$FF if bit clear
+                beq print_no_action_name
+                txa
+                asl a           ; 2*index
+                sta wptr
+                asl a           ; 4*index
+                adc wptr        ; 4*index+2*index
+                tax
+                ldy #5
+
+print_action_name:
+                lda action_names,x; "UP   "
+                beq L9841
+                jsr oswrch
+                inx
+                bne print_action_name
+
+print_no_action_name:
+                jsr print_following_string
+                .text "     "
+                .byte 0
+L9841:
+                pla
+                tax
+                inx
+                cpx #5          ; 5 action indexes...
+                bne check_actions
+                beq loop
+
+L984A:
+                ldx #$A
+                ldy #$A
+                jsr set_cursor_visibility; show cursor
+                lda #$7E
+                jsr osbyte      ; acknowledge escape
+; restore old screen mode
+                lda #22
+                jsr oswrch
+                pla
+                jsr oswrch
+                pla
+                pla
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+; Set cursor visibility
+; Entry: X=0 Y=10 - hide cursor
+;        X=10 Y=10 - show cursor
+
+set_cursor_visibility:.block
+                lda L986D,x
+                jsr oswrch
+                inx
+                dey
+                bne set_cursor_visibility; Set cursor visibility
+                                         ; Entry: X=0 Y=10 - hide cursor
+                                         ;        X=10 Y=10 - show cursor
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L986D:      .byte 23, 1, 0, 0, 0, 0, 0, 0, 0, 0; 0
+                .byte 23, 1, 1, 0, 0, 0, 0, 0, 0, 0; 0
+
+;-------------------------------------------------------------------------
+
+                ldy #$FF
+
+;-------------------------------------------------------------------------
+
+call_osbyte_81: .block
+                lda #$81
+                jmp osbyte
+                .endblock
+
+;-------------------------------------------------------------------------
+
+action_name_offsets:.byte 0
+                .byte 6
+                .byte $C
+                .byte $12
+                .byte $18
+action_names:   .text "UP   "
+                .byte 0
+                .text "DOWN "
+                .byte 0
+                .text "LEFT "
+                .byte 0
+                .text "RIGHT"
+                .byte 0
+                .text "FIRE "
+                .byte 0
+; Sequence of variable-length structs:
+; +0 - ASCII code/control code
+; +1... - Printable key name
+; +N - Internal key number, bit 7 set
+
+key_table_entry: .macro ascii,name,key_number
+                .byte \ascii
+                .text \name
+                .byte \key_number
+                .endmacro
+
+keys_table:     .key_table_entry 'A','A',$C1
+                .key_table_entry 'B','B',$E4
+                .key_table_entry 'C','C',$D2
+                .key_table_entry 'D','D',$B2
+                .key_table_entry 'E','E',$A2
+                .key_table_entry 'F','F',$C3
+                .key_table_entry 'G','G',$D3
+                .key_table_entry 'H','H',$D4
+                .key_table_entry 'I','I',$A6
+                .key_table_entry 'J','J',$C5
+                .key_table_entry 'K','K',$C6
+                .key_table_entry 'L','L',$D6
+                .key_table_entry 'M','M',$E5
+                .key_table_entry 'N','N',$D5
+                .key_table_entry 'O','O',$B6
+                .key_table_entry 'P','P',$B7
+                .key_table_entry 'Q','Q',$90
+                .key_table_entry 'R','R',$B3
+                .key_table_entry 'S','S',$D1
+                .key_table_entry 'T','T',$A3
+                .key_table_entry 'U','U',$B5
+                .key_table_entry 'V','V',$E3
+                .key_table_entry 'W','W',$A1
+                .key_table_entry 'X','X',$C2
+                .key_table_entry 'Y','Y',$C4
+                .key_table_entry 'Z','Z',$E1
+                .key_table_entry '0','0',$A7
+                .key_table_entry '1','1',$B0
+                .key_table_entry '2','2',$B1
+                .key_table_entry '3','3',$91
+                .key_table_entry '4','4',$92
+                .key_table_entry '5','5',$93
+                .key_table_entry '6','6',$B4
+                .key_table_entry '7','7',$A4
+                .key_table_entry '8','8',$95
+                .key_table_entry '9','9',$A5
+                .key_table_entry '-','-',$97
+                .key_table_entry ';',';',$D7
+                .key_table_entry ':',':',$C8
+                .key_table_entry ',',',',$E6
+                .key_table_entry '.','.',$E7
+                .key_table_entry '/','/',$E8
+                .key_table_entry ' ',"SPACE",$E2
+                .key_table_entry $1B,"ESCAPE",$F0
+                .key_table_entry $7F,"DELETE",$D9
+                .key_table_entry $D,"RETURN",$C9
+                .key_table_entry $8B,"CURSOR UP",$B9
+                .key_table_entry $8A,"CURSOR DOWN",$A9
+                .key_table_entry $88,"CURSOR LEFT",$99
+                .key_table_entry $89,"CURSOR RIGHT",$F9
+                .key_table_entry $87,"COPY",$E9
+                .key_table_entry 1,"SHIFT",$80
+                .key_table_entry 2,"CTRL",$81
+                .key_table_entry 3,"CAPS LOCK",$C0
+                .text 0
+cmd_joystick_banner:.byte 0
+                .text "Up Down Left Right Fire"
+                .byte 0
+                .text "SETUP"
+                .byte 0
+                .text "TEST"
+                .byte 0
+                .byte 0
+
+;-------------------------------------------------------------------------
+
+clear_escape_condition:.block
+                lda #$7E
+                jmp osbyte
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L99C4:
+                php
+                sei
+                tya
+                pha
+                lda os_unused   ; Flags ($0290 - unused by Electron OS)
+                                ; %.a....jj    %jj = joystick interface to use
+                                ;                a = 0=ADC, 1=9-pin joysticks
+                and #$40
+                beq L99DB
+                txa
+                and #$3F
+                tay
+                lda L9A20,y
+                and #$7F
+                jsr L99E1
+
+L99DB:
+                tax
+                pla
+                tay
+                plp
+                txa
+                rts
+
+;-------------------------------------------------------------------------
+
+L99E1:       .block
+                ldx #0
+                cmp os_rom_types+2
+                beq L9A00
+                inx
+                cmp os_rom_types+3
+                beq L9A00
+                inx
+                cmp os_rom_types+8
+                beq L9A00
+                inx
+                cmp os_rom_types+9
+                beq L9A00
+                inx
+                cmp os_rom_types+$A
+                bne L9A1D
+
+L9A00:
+                lda os_unused   ; Flags ($0290 - unused by Electron OS)
+                                ; %.a....jj    %jj = joystick interface to use
+                                ;                a = 0=ADC, 1=9-pin joysticks
+                and #3
+                tay
+                lda fred_offsets,y; offset of joystick I/O by joystick index
+                                  ; (see table on p6 of Elk Expansion manual)
+                tay
+                lda $FC00,y
+                ror a
+                bcc L9A14
+                ror a
+                bcs L9A1D
+                rol a
+
+L9A14:
+                rol a
+                and table_1_2_4_8_16,x
+                beq L9A1C
+                lda #$80
+
+L9A1C:
+                rts
+
+;-------------------------------------------------------------------------
+
+L9A1D:
+                lda #0
+                rts
+                .endblock
+
+;-------------------------------------------------------------------------
+
+L9A20:      .byte 0, 0, 0, 0, $79, $69, 0, $62; 0
+                .byte $19, $29, $49, $59, $17, $39, $48, 0; 8
+                .byte $27, $37, $57, $68, $25, $36, $56, $67; 16
+                .byte $15, $26, $46, $66, $24, $35, $45, $65; 24
+                .byte $34, $44, $54, $55, $13, $23, $53, $64; 32
+                .byte $12, $33, $43, $63, $11, $22, $32, $52; 40
+                .byte $31, $21, $51, $42, $30, $10, $41, $61; 48
+                .byte $70, $40, 1, 0, 0, 0, 0, 0            ; 56
+
+;-------------------------------------------------------------------------
+
+                .fill $a000-3-*
+                jmp L99C4
+
+;-------------------------------------------------------------------------

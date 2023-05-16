@@ -27,12 +27,23 @@ _V:=$(if $(VERBOSE),,@)
 build:
 	$(_V)$(SHELLCMD) mkdir $(BUILD)
 
-	$(_V)64tass --quiet --nostart --case-sensitive -Wall "--list=$(BUILD)/Electron-Expansion-v2.02.lst" "--output=$(BUILD)/Electron-Expansion-v2.02.rom" Electron-Expansion-v2.02.s65
+	$(_V)64tass --quiet --nostart --case-sensitive -Wall --verbose-list "--list=$(BUILD)/Electron-Expansion-v2.02.lst" "--output=$(BUILD)/Electron-Expansion-v2.02.rom" Electron-Expansion-v2.02.s65
 
 # Don't print full paths
 	$(_V)$(SHELLCMD) sha1 "build/Electron-Expansion-v2.02.rom"
 	$(_V)$(SHELLCMD) sha1 "originals/Electron-Expansion-v2.02.rom"
 
+##########################################################################
+##########################################################################
+
 .PHONY:clean
 clean:
 	$(_V)$(SHELLCMD) rm-tree "$(BUILD)"
+
+##########################################################################
+##########################################################################
+
+.PHONY:lst
+lst: build
+	$(_V)diff -q "$(BUILD)/Electron-Expansion-v2.02.rom" originals/Electron-Expansion-v2.02.rom
+	$(_V)$(SHELLCMD) copy-file "$(BUILD)/Electron-Expansion-v2.02.lst" "originals/"

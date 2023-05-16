@@ -6,7 +6,8 @@ Builds a ROM exactly matching the Electron Expansion 2.02 ROM.
 # Build
 
 (You don't actually need to do this! The original ROM is in the repo:
-`originals/Electron-Expansion-v2.02.rom`.)
+`originals/Electron-Expansion-v2.02.rom`, along with a recent copy of
+the 64tass listing file.)
 
 ## Build prerequisites
 
@@ -31,3 +32,16 @@ the following from inside the working copy:
 To build, run `make` from the root of the working copy.
 
 The output is a .rom file, `build/Electron-Expansion-v2.02.rom`.
+
+The build prints two file hashes, showing the contents match. The expected output is this:
+
+    dbc73e8d919c5615d0241d99db60e06324e16c86  build/Electron-Expansion-v2.02.rom
+    dbc73e8d919c5615d0241d99db60e06324e16c86  originals/Electron-Expansion-v2.02.rom
+
+If the output matches the original, you can also do `make lst` to
+update the listing file in the originals folder - e.g., after adding
+useful comments, or improving label names, and so on.
+
+# Other stuff
+
+There are manuals in the `docs` folder.

@@ -4768,63 +4768,64 @@ action_names:   .text "UP   "
 key_table_entry: .macro ascii,name,key_number
                 .byte \ascii
                 .text \name
-                .byte \key_number
+                .byte \key_number|$80
                 .endmacro
 
-keys_table:     .key_table_entry 'A','A',$C1
-                .key_table_entry 'B','B',$E4
-                .key_table_entry 'C','C',$D2
-                .key_table_entry 'D','D',$B2
-                .key_table_entry 'E','E',$A2
-                .key_table_entry 'F','F',$C3
-                .key_table_entry 'G','G',$D3
-                .key_table_entry 'H','H',$D4
-                .key_table_entry 'I','I',$A6
-                .key_table_entry 'J','J',$C5
-                .key_table_entry 'K','K',$C6
-                .key_table_entry 'L','L',$D6
-                .key_table_entry 'M','M',$E5
-                .key_table_entry 'N','N',$D5
-                .key_table_entry 'O','O',$B6
-                .key_table_entry 'P','P',$B7
-                .key_table_entry 'Q','Q',$90
-                .key_table_entry 'R','R',$B3
-                .key_table_entry 'S','S',$D1
-                .key_table_entry 'T','T',$A3
-                .key_table_entry 'U','U',$B5
-                .key_table_entry 'V','V',$E3
-                .key_table_entry 'W','W',$A1
-                .key_table_entry 'X','X',$C2
-                .key_table_entry 'Y','Y',$C4
-                .key_table_entry 'Z','Z',$E1
-                .key_table_entry '0','0',$A7
-                .key_table_entry '1','1',$B0
-                .key_table_entry '2','2',$B1
-                .key_table_entry '3','3',$91
-                .key_table_entry '4','4',$92
-                .key_table_entry '5','5',$93
-                .key_table_entry '6','6',$B4
-                .key_table_entry '7','7',$A4
-                .key_table_entry '8','8',$95
-                .key_table_entry '9','9',$A5
-                .key_table_entry '-','-',$97
-                .key_table_entry ';',';',$D7
-                .key_table_entry ':',':',$C8
-                .key_table_entry ',',',',$E6
-                .key_table_entry '.','.',$E7
-                .key_table_entry '/','/',$E8
-                .key_table_entry ' ',"SPACE",$E2
-                .key_table_entry $1B,"ESCAPE",$F0
-                .key_table_entry $7F,"DELETE",$D9
-                .key_table_entry $D,"RETURN",$C9
-                .key_table_entry $8B,"CURSOR UP",$B9
-                .key_table_entry $8A,"CURSOR DOWN",$A9
-                .key_table_entry $88,"CURSOR LEFT",$99
-                .key_table_entry $89,"CURSOR RIGHT",$F9
-                .key_table_entry $87,"COPY",$E9
-                .key_table_entry 1,"SHIFT",$80
-                .key_table_entry 2,"CTRL",$81
-                .key_table_entry 3,"CAPS LOCK",$C0
+keys_table:
+                .key_table_entry 'A','A',key_a
+                .key_table_entry 'B','B',key_b
+                .key_table_entry 'C','C',key_c
+                .key_table_entry 'D','D',key_d
+                .key_table_entry 'E','E',key_e
+                .key_table_entry 'F','F',key_f
+                .key_table_entry 'G','G',key_g
+                .key_table_entry 'H','H',key_h
+                .key_table_entry 'I','I',key_9 ;????
+                .key_table_entry 'J','J',key_j
+                .key_table_entry 'K','K',key_k
+                .key_table_entry 'L','L',key_l
+                .key_table_entry 'M','M',key_m
+                .key_table_entry 'N','N',key_n
+                .key_table_entry 'O','O',key_o
+                .key_table_entry 'P','P',key_p
+                .key_table_entry 'Q','Q',key_q
+                .key_table_entry 'R','R',key_r
+                .key_table_entry 'S','S',key_s
+                .key_table_entry 'T','T',key_t
+                .key_table_entry 'U','U',key_u
+                .key_table_entry 'V','V',key_v
+                .key_table_entry 'W','W',key_w
+                .key_table_entry 'X','X',key_x
+                .key_table_entry 'Y','Y',key_y
+                .key_table_entry 'Z','Z',key_z
+                .key_table_entry '0','0',key_0
+                .key_table_entry '1','1',key_1
+                .key_table_entry '2','2',key_2
+                .key_table_entry '3','3',key_3
+                .key_table_entry '4','4',key_4
+                .key_table_entry '5','5',key_5
+                .key_table_entry '6','6',key_6
+                .key_table_entry '7','7',key_7
+                .key_table_entry '8','8',key_8
+                .key_table_entry '9','9',key_i ;????
+                .key_table_entry '-','-',key_minus
+                .key_table_entry ';',';',key_semicolon
+                .key_table_entry ':',':',key_colon
+                .key_table_entry ',',',',key_comma
+                .key_table_entry '.','.',key_stop
+                .key_table_entry '/','/',key_slash
+                .key_table_entry ' ',"SPACE",key_space
+                .key_table_entry $1B,"ESCAPE",key_escape
+                .key_table_entry $7F,"DELETE",key_delete
+                .key_table_entry $D,"RETURN",key_return
+                .key_table_entry $8B,"CURSOR UP",key_up
+                .key_table_entry $8A,"CURSOR DOWN",key_down
+                .key_table_entry $88,"CURSOR LEFT",key_left
+                .key_table_entry $89,"CURSOR RIGHT",key_right
+                .key_table_entry $87,"COPY",key_copy
+                .key_table_entry 1,"SHIFT",key_shift
+                .key_table_entry 2,"CTRL",key_ctrl
+                .key_table_entry 3,"CAPS LOCK",key_caps_lock
                 .text 0
 cmd_joystick_banner:.byte 0
                 .text "Up Down Left Right Fire"

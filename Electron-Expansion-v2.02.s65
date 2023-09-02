@@ -1,6 +1,12 @@
                 .include "submodules/beeb/include/beeb.s65"
 
 ;-------------------------------------------------------------------------
+
+fall_through_to: .macro dest
+                .cerror *!=\dest,'fallthrough broke...'
+                .endmacro
+                
+;-------------------------------------------------------------------------
 ;
 ; ROM zero page
 ;
@@ -67,7 +73,7 @@ line_input_data=$155
 ; OS page 2/3
 ;               
 os_current_adc_channel=$24c
-L0255=$255
+os_auto_repeat_period=$255
 os_shadow_ram_flag=$27f
 os_printer_destination=$285 ; set by *FX5
                 ; 0 = BREAK
@@ -610,42 +616,46 @@ L8266:
 
 ;-------------------------------------------------------------------------
 
-thunked_osbyte_81h:
+thunked_osbyte_81h: .proc
                 plp
                 cpy #$80
-                bcc L82BF
+                bcc osbyte_81h_with_timeout       ;taken if reading key within time
+                                ;limit
                 cpx #0
-                beq L82B8
-                pha
+                beq osbyte_81h_query_machine_type
+                pha             ;save A
                 tya
-                pha
+                pha             ;save Y
                 txa
-                pha
-                eor #$FF
+                pha             ;save X
+                ; A = INKEY value
+                eor #$FF        ;turn into internal key no.
                 and #$7F
                 jsr check_joystick_key; Check if a key is "pressed" by the joystick.
                                       ; Entry: A = internal key number
                                       ; Exit:  A=$ff if key pressed
                                       ;        A=$00 if key not pressed
-                beq L8287          ; taken if key not pressed
+                beq not_pressed
 ; set X/Y as per OSBYTE $81
-                tax
-                tay
-                sec
+                tax             ;X=$ff
+                tay             ;Y=$ff
+                sec             ;C=1 (???)
                 pla
                 pla
                 pla
                 rts
-
+                
 ;-------------------------------------------------------------------------
 
-L8287:
+not_pressed:
                 pla
-                tax
+                tax             ;restore X
                 pla
-                tay
-                pla
-
+                tay             ;restore Y
+                pla             ;restore A
+                .fall_through_to call_default_osbyte
+                .endproc
+                
 ;-------------------------------------------------------------------------
 
 ; Call default OSBYTE routine
@@ -689,16 +699,17 @@ call_default_vector_routine:
                 jmp (os_a)      ; A value for osbyte/osword
 
 ;-------------------------------------------------------------------------
-
-L82B8:
-                ldx #1
-                lda os_a        ; A value for osbyte/osword
-                ldy #0
+; see AUG p 152
+osbyte_81h_query_machine_type:
+                ldx #1          ;1 = Electron OS 1.00
+                lda os_a        ;A is preserved
+                ldy #0          ;Y=0
                 rts
 
 ;-------------------------------------------------------------------------
 
-L82BF:
+osbyte_81h_with_timeout: .proc
+                ; Form negated timeout in X/Y.
                 tya
                 eor #$FF
                 tay
@@ -706,20 +717,23 @@ L82BF:
                 eor #$FF
                 tax
 
-L82C7:
+loop:
+                ; Save timeout.
                 txa
                 pha
                 tya
                 pha
-; 1 centisecond
+
+                ; Poll for 1 centisecond.
                 ldy #0
                 ldx #1
                 lda #$81        ; Read key within time limit (INKEY)
                                 ; (EAUG p45)
                 jsr call_default_osbyte; Call default OSBYTE routine
-                iny                    ; If key pressed: Y=$01
-                                       ; If key not pressed: Y=$00
-                bne L8300           ; taken if key pressed
+
+                iny                    ; Y=1 if pressed, Y=0 if not
+                bne keyboard_key_pressed
+                
                 jsr read_joystick_key  ; Read key "pressed" by joystick
                                        ; Exit: Y=$00, C=0 - key pressed
                                        ;                    A = action index
@@ -727,48 +741,55 @@ L82C7:
                                        ;       Y=$ff, C=1 - no key pressed
                 iny                    ; If key pressed: Y=$01
                                        ; If key not pressed: Y=$00
-                bne L82EE           ; taken if key pressed
+                bne joystick_key_pressed
+
+                ; ???
                 lda #1
                 sta os_auto_repeat_countdown; EAUG3 p187
 
-L82E1:
+next:
+                ; Restore timeout
                 pla
                 tay
                 pla
                 tax
+
+                ; Increment timeout and keep going until zero.
                 inx
-                bne L82C7
+                bne loop
                 iny
-                bne L82C7
+                bne loop
+
+                ; Timed out. Return with C=1 and Y=$ff.
                 dey
                 sec
                 rts
 
 ;-------------------------------------------------------------------------
 
-L82EE:
-                lda os_auto_repeat_countdown; EAUG3 p187
-                beq L82F6
-                dec os_auto_repeat_countdown; EAUG3 p187
-                bne L82E1
+joystick_key_pressed:
+                lda os_auto_repeat_countdown
+                beq reset_auto_repeat_countdown
+                dec os_auto_repeat_countdown
+                ; Auto-repeat countdown still in progress.
+                bne next
 
-L82F6:
-                lda L0255    ; TODO - shouldn't this be lda #$ff?
-                                ; Presumably intended to reset the countdown timer
+reset_auto_repeat_countdown:
+                lda os_auto_repeat_period
                 sta os_auto_repeat_countdown; EAUG3 p187
                 pla
-                pla
-                dey
+                pla             ;A is preserved.
+                dey             ;Y=0
                 sec
                 rts
 
-;-------------------------------------------------------------------------
-
-L8300:
-                dey
+keyboard_key_pressed:
+                ; Return from OSBYTE $81, indicating key pressed.
+                dey             ;Y=0
                 pla
-                pla
+                pla             ;A is preserved.
                 rts
+                .endproc
 
 ;-------------------------------------------------------------------------
 
@@ -983,8 +1004,8 @@ check_joystick_key:.block
                 cmp os_rom_types+9
                 beq L83D7    ; read_joystick with X=3
                 cmp os_rom_types+$A
-                bne L83EF    ; read_joystick with X=4
-                inx
+                bne L83EF       ; interpret as not presed
+                inx             ; read_joystick with X=4
 
 L83D7:
                 inx
@@ -1056,7 +1077,7 @@ key_chars_table:.byte 0, 0, 0, 0, 0, 0, 0, 0; 0
 
 ;-------------------------------------------------------------------------
 
-                ldx #$6D        ; TODO: error index
+                ldx #bad_hex_error
                 jmp do_error
 
 ;-------------------------------------------------------------------------
@@ -3569,7 +3590,7 @@ L91D0:
 ;-------------------------------------------------------------------------
 
 L91D5:
-                ldx #$6D        ; TODO: Bad hex
+                ldx #bad_hex_error
                 jmp do_error
                 .endblock
 
@@ -3996,7 +4017,8 @@ command_address: .macro value
                 .byte >\value-1,<\value-1
                 .endmacro
                 
-errors_table:   .byte $6E
+errors_table:
+                .byte $6E
                 .text "No Sideways RAM"; $00
                 .byte 0
                 .byte $6F
@@ -4011,11 +4033,12 @@ errors_table:   .byte $6E
                 .byte $72
                 .text "Print buffer not set up"
                 .byte 0
+bad_hex_error=*-errors_table
                 .byte $73
                 .text "Bad hex" ; $6d
                 .byte 0
                 .byte $74
-                .text "Key missing"
+                .text "Key missing" ;$76
                 .byte 0
                 .byte $FE
                 .text "Bad command"; ; $83
@@ -4119,7 +4142,7 @@ done:
 ;-------------------------------------------------------------------------
 
 bad_hex:
-                ldx #$6D        ; TODO: Bad hex
+                ldx #bad_hex_error
                 jmp do_error
 
 ;-------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 
 ; 64tass Turbo Assembler Macro V1.58.2974? listing file
 ; 64tass --quiet --nostart --case-sensitive -Wall --verbose-list --list=/Users/tom/beeb/code/SloggerElectronExpansion/build/Electron-Expansion-v2.02.lst --output=/Users/tom/beeb/code/SloggerElectronExpansion/build/Electron-Expansion-v2.02.rom Electron-Expansion-v2.02.s65
-; Tue May 16 01:09:44 2023
+; Wed Sep  6 21:15:20 2023
 
 ;Offset	;PC	;Hex		;Monitor	;Source
 
@@ -574,6 +574,11 @@
 
 
 						;-------------------------------------------------------------------------
+
+						fall_through_to: .macro dest
+						                .endmacro
+
+						;-------------------------------------------------------------------------
 						;
 						; ROM zero page
 						;
@@ -640,7 +645,7 @@
 						; OS page 2/3
 						;
 =$24c						os_current_adc_channel=$24c
-=$255						L0255=$255
+=$255						os_auto_repeat_period=$255
 =$27f						os_shadow_ram_flag=$27f
 =$285						os_printer_destination=$285 ; set by *FX5
 						                ; 0 = BREAK
@@ -1188,28 +1193,30 @@
 
 						;-------------------------------------------------------------------------
 
-.8269						thunked_osbyte_81h:
+.8269						thunked_osbyte_81h: .proc
 .8269		28		plp		                plp
 .826a		c0 80		cpy #$80	                cpy #$80
-.826c		90 51		bcc $82bf	                bcc L82BF
+.826c		90 51		bcc $82bf	                bcc osbyte_81h_with_timeout       ;taken if reading key within time
+						                                ;limit
 .826e		e0 00		cpx #$00	                cpx #0
-.8270		f0 46		beq $82b8	                beq L82B8
-.8272		48		pha		                pha
+.8270		f0 46		beq $82b8	                beq osbyte_81h_query_machine_type
+.8272		48		pha		                pha             ;save A
 .8273		98		tya		                tya
-.8274		48		pha		                pha
+.8274		48		pha		                pha             ;save Y
 .8275		8a		txa		                txa
-.8276		48		pha		                pha
-.8277		49 ff		eor #$ff	                eor #$FF
+.8276		48		pha		                pha             ;save X
+						                ; A = INKEY value
+.8277		49 ff		eor #$ff	                eor #$FF        ;turn into internal key no.
 .8279		29 7f		and #$7f	                and #$7F
 .827b		20 bb 83	jsr $83bb	                jsr check_joystick_key; Check if a key is "pressed" by the joystick.
 						                                      ; Entry: A = internal key number
 						                                      ; Exit:  A=$ff if key pressed
 						                                      ;        A=$00 if key not pressed
-.827e		f0 07		beq $8287	                beq L8287          ; taken if key not pressed
+.827e		f0 07		beq $8287	                beq not_pressed
 						; set X/Y as per OSBYTE $81
-.8280		aa		tax		                tax
-.8281		a8		tay		                tay
-.8282		38		sec		                sec
+.8280		aa		tax		                tax             ;X=$ff
+.8281		a8		tay		                tay             ;Y=$ff
+.8282		38		sec		                sec             ;C=1 (???)
 .8283		68		pla		                pla
 .8284		68		pla		                pla
 .8285		68		pla		                pla
@@ -1217,12 +1224,14 @@
 
 						;-------------------------------------------------------------------------
 
-.8287						L8287:
+.8287						not_pressed:
 .8287		68		pla		                pla
-.8288		aa		tax		                tax
+.8288		aa		tax		                tax             ;restore X
 .8289		68		pla		                pla
-.828a		a8		tay		                tay
-.828b		68		pla		                pla
+.828a		a8		tay		                tay             ;restore Y
+.828b		68		pla		                pla             ;restore A
+						                .cerror *!=call_default_osbyte,'fallthrough broke...'
+						                .endproc
 
 						;-------------------------------------------------------------------------
 
@@ -1267,16 +1276,17 @@
 .82b5		6c ef 00	jmp ($00ef)	                jmp (os_a)      ; A value for osbyte/osword
 
 						;-------------------------------------------------------------------------
-
-.82b8						L82B8:
-.82b8		a2 01		ldx #$01	                ldx #1
-.82ba		a5 ef		lda $ef		                lda os_a        ; A value for osbyte/osword
-.82bc		a0 00		ldy #$00	                ldy #0
+						; see AUG p 152
+.82b8						osbyte_81h_query_machine_type:
+.82b8		a2 01		ldx #$01	                ldx #1          ;1 = Electron OS 1.00
+.82ba		a5 ef		lda $ef		                lda os_a        ;A is preserved
+.82bc		a0 00		ldy #$00	                ldy #0          ;Y=0
 .82be		60		rts		                rts
 
 						;-------------------------------------------------------------------------
 
-.82bf						L82BF:
+.82bf						osbyte_81h_with_timeout: .proc
+						                ; Form negated timeout in X/Y.
 .82bf		98		tya		                tya
 .82c0		49 ff		eor #$ff	                eor #$FF
 .82c2		a8		tay		                tay
@@ -1284,20 +1294,23 @@
 .82c4		49 ff		eor #$ff	                eor #$FF
 .82c6		aa		tax		                tax
 
-.82c7						L82C7:
+.82c7						loop:
+						                ; Save timeout.
 .82c7		8a		txa		                txa
 .82c8		48		pha		                pha
 .82c9		98		tya		                tya
 .82ca		48		pha		                pha
-						; 1 centisecond
+
+						                ; Poll for 1 centisecond.
 .82cb		a0 00		ldy #$00	                ldy #0
 .82cd		a2 01		ldx #$01	                ldx #1
 .82cf		a9 81		lda #$81	                lda #$81        ; Read key within time limit (INKEY)
 						                                ; (EAUG p45)
 .82d1		20 8c 82	jsr $828c	                jsr call_default_osbyte; Call default OSBYTE routine
-.82d4		c8		iny		                iny                    ; If key pressed: Y=$01
-						                                       ; If key not pressed: Y=$00
-.82d5		d0 29		bne $8300	                bne L8300           ; taken if key pressed
+
+.82d4		c8		iny		                iny                    ; Y=1 if pressed, Y=0 if not
+.82d5		d0 29		bne $8300	                bne keyboard_key_pressed
+
 .82d7		20 93 83	jsr $8393	                jsr read_joystick_key  ; Read key "pressed" by joystick
 						                                       ; Exit: Y=$00, C=0 - key pressed
 						                                       ;                    A = action index
@@ -1305,48 +1318,55 @@
 						                                       ;       Y=$ff, C=1 - no key pressed
 .82da		c8		iny		                iny                    ; If key pressed: Y=$01
 						                                       ; If key not pressed: Y=$00
-.82db		d0 11		bne $82ee	                bne L82EE           ; taken if key pressed
+.82db		d0 11		bne $82ee	                bne joystick_key_pressed
+
+						                ; ???
 .82dd		a9 01		lda #$01	                lda #1
 .82df		85 e7		sta $e7		                sta os_auto_repeat_countdown; EAUG3 p187
 
-.82e1						L82E1:
+.82e1						next:
+						                ; Restore timeout
 .82e1		68		pla		                pla
 .82e2		a8		tay		                tay
 .82e3		68		pla		                pla
 .82e4		aa		tax		                tax
+
+						                ; Increment timeout and keep going until zero.
 .82e5		e8		inx		                inx
-.82e6		d0 df		bne $82c7	                bne L82C7
+.82e6		d0 df		bne $82c7	                bne loop
 .82e8		c8		iny		                iny
-.82e9		d0 dc		bne $82c7	                bne L82C7
+.82e9		d0 dc		bne $82c7	                bne loop
+
+						                ; Timed out. Return with C=1 and Y=$ff.
 .82eb		88		dey		                dey
 .82ec		38		sec		                sec
 .82ed		60		rts		                rts
 
 						;-------------------------------------------------------------------------
 
-.82ee						L82EE:
-.82ee		a5 e7		lda $e7		                lda os_auto_repeat_countdown; EAUG3 p187
-.82f0		f0 04		beq $82f6	                beq L82F6
-.82f2		c6 e7		dec $e7		                dec os_auto_repeat_countdown; EAUG3 p187
-.82f4		d0 eb		bne $82e1	                bne L82E1
+.82ee						joystick_key_pressed:
+.82ee		a5 e7		lda $e7		                lda os_auto_repeat_countdown
+.82f0		f0 04		beq $82f6	                beq reset_auto_repeat_countdown
+.82f2		c6 e7		dec $e7		                dec os_auto_repeat_countdown
+						                ; Auto-repeat countdown still in progress.
+.82f4		d0 eb		bne $82e1	                bne next
 
-.82f6						L82F6:
-.82f6		ad 55 02	lda $0255	                lda L0255    ; TODO - shouldn't this be lda #$ff?
-						                                ; Presumably intended to reset the countdown timer
+.82f6						reset_auto_repeat_countdown:
+.82f6		ad 55 02	lda $0255	                lda os_auto_repeat_period
 .82f9		85 e7		sta $e7		                sta os_auto_repeat_countdown; EAUG3 p187
 .82fb		68		pla		                pla
-.82fc		68		pla		                pla
-.82fd		88		dey		                dey
+.82fc		68		pla		                pla             ;A is preserved.
+.82fd		88		dey		                dey             ;Y=0
 .82fe		38		sec		                sec
 .82ff		60		rts		                rts
 
-						;-------------------------------------------------------------------------
-
-.8300						L8300:
-.8300		88		dey		                dey
+.8300						keyboard_key_pressed:
+						                ; Return from OSBYTE $81, indicating key pressed.
+.8300		88		dey		                dey             ;Y=0
 .8301		68		pla		                pla
-.8302		68		pla		                pla
+.8302		68		pla		                pla             ;A is preserved.
 .8303		60		rts		                rts
+						                .endproc
 
 						;-------------------------------------------------------------------------
 
@@ -1561,8 +1581,8 @@
 .83cc		cd a9 02	cmp $02a9	                cmp os_rom_types+9
 .83cf		f0 06		beq $83d7	                beq L83D7    ; read_joystick with X=3
 .83d1		cd aa 02	cmp $02aa	                cmp os_rom_types+$A
-.83d4		d0 19		bne $83ef	                bne L83EF    ; read_joystick with X=4
-.83d6		e8		inx		                inx
+.83d4		d0 19		bne $83ef	                bne L83EF       ; interpret as not presed
+.83d6		e8		inx		                inx             ; read_joystick with X=4
 
 .83d7						L83D7:
 .83d7		e8		inx		                inx
@@ -1634,7 +1654,7 @@
 
 						;-------------------------------------------------------------------------
 
-.8476		a2 6d		ldx #$6d	                ldx #$6D        ; TODO: error index
+.8476		a2 6d		ldx #$6d	                ldx #bad_hex_error
 .8478		4c 57 93	jmp $9357	                jmp do_error
 
 						;-------------------------------------------------------------------------
@@ -4160,7 +4180,7 @@
 						;-------------------------------------------------------------------------
 
 .91d5						L91D5:
-.91d5		a2 6d		ldx #$6d	                ldx #$6D        ; TODO: Bad hex
+.91d5		a2 6d		ldx #$6d	                ldx #bad_hex_error
 .91d7		4c 57 93	jmp $9357	                jmp do_error
 						                .endblock
 
@@ -4586,7 +4606,8 @@
 						command_address: .macro value
 						                .endmacro
 
->936b		6e				errors_table:   .byte $6E
+.936b						errors_table:
+>936b		6e				                .byte $6E
 >936c		4e 6f 20 53 69 64 65 77		                .text "No Sideways RAM"; $00
 >9374		61 79 73 20 52 41 4d
 >937b		00				                .byte 0
@@ -4606,11 +4627,12 @@
 >93c0		50 72 69 6e 74 20 62 75		                .text "Print buffer not set up"
 >93c8		66 66 65 72 20 6e 6f 74 20 73 65 74 20 75 70
 >93d7		00				                .byte 0
+=109						bad_hex_error=*-errors_table
 >93d8		73				                .byte $73
 >93d9		42 61 64 20 68 65 78		                .text "Bad hex" ; $6d
 >93e0		00				                .byte 0
 >93e1		74				                .byte $74
->93e2		4b 65 79 20 6d 69 73 73		                .text "Key missing"
+>93e2		4b 65 79 20 6d 69 73 73		                .text "Key missing" ;$76
 >93ea		69 6e 67
 >93ed		00				                .byte 0
 >93ee		fe				                .byte $FE
@@ -4721,7 +4743,7 @@
 						;-------------------------------------------------------------------------
 
 .94fd						bad_hex:
-.94fd		a2 6d		ldx #$6d	                ldx #$6D        ; TODO: Bad hex
+.94fd		a2 6d		ldx #$6d	                ldx #bad_hex_error
 .94ff		4c 57 93	jmp $9357	                jmp do_error
 
 						;-------------------------------------------------------------------------
@@ -5379,171 +5401,171 @@
 .98ab						keys_table:
 >98ab		41				                .byte 'A'
 >98ac		41				                .text 'A'
->98ad		c1				                .byte $C1
+>98ad		c1				                .byte key_a|$80
 >98ae		42				                .byte 'B'
 >98af		42				                .text 'B'
->98b0		e4				                .byte $E4
+>98b0		e4				                .byte key_b|$80
 >98b1		43				                .byte 'C'
 >98b2		43				                .text 'C'
->98b3		d2				                .byte $D2
+>98b3		d2				                .byte key_c|$80
 >98b4		44				                .byte 'D'
 >98b5		44				                .text 'D'
->98b6		b2				                .byte $B2
+>98b6		b2				                .byte key_d|$80
 >98b7		45				                .byte 'E'
 >98b8		45				                .text 'E'
->98b9		a2				                .byte $A2
+>98b9		a2				                .byte key_e|$80
 >98ba		46				                .byte 'F'
 >98bb		46				                .text 'F'
->98bc		c3				                .byte $C3
+>98bc		c3				                .byte key_f|$80
 >98bd		47				                .byte 'G'
 >98be		47				                .text 'G'
->98bf		d3				                .byte $D3
+>98bf		d3				                .byte key_g|$80
 >98c0		48				                .byte 'H'
 >98c1		48				                .text 'H'
->98c2		d4				                .byte $D4
+>98c2		d4				                .byte key_h|$80
 >98c3		49				                .byte 'I'
 >98c4		49				                .text 'I'
->98c5		a6				                .byte $A6
+>98c5		a6				                .byte key_9|$80
 >98c6		4a				                .byte 'J'
 >98c7		4a				                .text 'J'
->98c8		c5				                .byte $C5
+>98c8		c5				                .byte key_j|$80
 >98c9		4b				                .byte 'K'
 >98ca		4b				                .text 'K'
->98cb		c6				                .byte $C6
+>98cb		c6				                .byte key_k|$80
 >98cc		4c				                .byte 'L'
 >98cd		4c				                .text 'L'
->98ce		d6				                .byte $D6
+>98ce		d6				                .byte key_l|$80
 >98cf		4d				                .byte 'M'
 >98d0		4d				                .text 'M'
->98d1		e5				                .byte $E5
+>98d1		e5				                .byte key_m|$80
 >98d2		4e				                .byte 'N'
 >98d3		4e				                .text 'N'
->98d4		d5				                .byte $D5
+>98d4		d5				                .byte key_n|$80
 >98d5		4f				                .byte 'O'
 >98d6		4f				                .text 'O'
->98d7		b6				                .byte $B6
+>98d7		b6				                .byte key_o|$80
 >98d8		50				                .byte 'P'
 >98d9		50				                .text 'P'
->98da		b7				                .byte $B7
+>98da		b7				                .byte key_p|$80
 >98db		51				                .byte 'Q'
 >98dc		51				                .text 'Q'
->98dd		90				                .byte $90
+>98dd		90				                .byte key_q|$80
 >98de		52				                .byte 'R'
 >98df		52				                .text 'R'
->98e0		b3				                .byte $B3
+>98e0		b3				                .byte key_r|$80
 >98e1		53				                .byte 'S'
 >98e2		53				                .text 'S'
->98e3		d1				                .byte $D1
+>98e3		d1				                .byte key_s|$80
 >98e4		54				                .byte 'T'
 >98e5		54				                .text 'T'
->98e6		a3				                .byte $A3
+>98e6		a3				                .byte key_t|$80
 >98e7		55				                .byte 'U'
 >98e8		55				                .text 'U'
->98e9		b5				                .byte $B5
+>98e9		b5				                .byte key_u|$80
 >98ea		56				                .byte 'V'
 >98eb		56				                .text 'V'
->98ec		e3				                .byte $E3
+>98ec		e3				                .byte key_v|$80
 >98ed		57				                .byte 'W'
 >98ee		57				                .text 'W'
->98ef		a1				                .byte $A1
+>98ef		a1				                .byte key_w|$80
 >98f0		58				                .byte 'X'
 >98f1		58				                .text 'X'
->98f2		c2				                .byte $C2
+>98f2		c2				                .byte key_x|$80
 >98f3		59				                .byte 'Y'
 >98f4		59				                .text 'Y'
->98f5		c4				                .byte $C4
+>98f5		c4				                .byte key_y|$80
 >98f6		5a				                .byte 'Z'
 >98f7		5a				                .text 'Z'
->98f8		e1				                .byte $E1
+>98f8		e1				                .byte key_z|$80
 >98f9		30				                .byte '0'
 >98fa		30				                .text '0'
->98fb		a7				                .byte $A7
+>98fb		a7				                .byte key_0|$80
 >98fc		31				                .byte '1'
 >98fd		31				                .text '1'
->98fe		b0				                .byte $B0
+>98fe		b0				                .byte key_1|$80
 >98ff		32				                .byte '2'
 >9900		32				                .text '2'
->9901		b1				                .byte $B1
+>9901		b1				                .byte key_2|$80
 >9902		33				                .byte '3'
 >9903		33				                .text '3'
->9904		91				                .byte $91
+>9904		91				                .byte key_3|$80
 >9905		34				                .byte '4'
 >9906		34				                .text '4'
->9907		92				                .byte $92
+>9907		92				                .byte key_4|$80
 >9908		35				                .byte '5'
 >9909		35				                .text '5'
->990a		93				                .byte $93
+>990a		93				                .byte key_5|$80
 >990b		36				                .byte '6'
 >990c		36				                .text '6'
->990d		b4				                .byte $B4
+>990d		b4				                .byte key_6|$80
 >990e		37				                .byte '7'
 >990f		37				                .text '7'
->9910		a4				                .byte $A4
+>9910		a4				                .byte key_7|$80
 >9911		38				                .byte '8'
 >9912		38				                .text '8'
->9913		95				                .byte $95
+>9913		95				                .byte key_8|$80
 >9914		39				                .byte '9'
 >9915		39				                .text '9'
->9916		a5				                .byte $A5
+>9916		a5				                .byte key_i|$80
 >9917		2d				                .byte '-'
 >9918		2d				                .text '-'
->9919		97				                .byte $97
+>9919		97				                .byte key_minus|$80
 >991a		3b				                .byte ';'
 >991b		3b				                .text ';'
->991c		d7				                .byte $D7
+>991c		d7				                .byte key_semicolon|$80
 >991d		3a				                .byte ':'
 >991e		3a				                .text ':'
->991f		c8				                .byte $C8
+>991f		c8				                .byte key_colon|$80
 >9920		2c				                .byte ','
 >9921		2c				                .text ','
->9922		e6				                .byte $E6
+>9922		e6				                .byte key_comma|$80
 >9923		2e				                .byte '.'
 >9924		2e				                .text '.'
->9925		e7				                .byte $E7
+>9925		e7				                .byte key_stop|$80
 >9926		2f				                .byte '/'
 >9927		2f				                .text '/'
->9928		e8				                .byte $E8
+>9928		e8				                .byte key_slash|$80
 >9929		20				                .byte ' '
 >992a		53 50 41 43 45			                .text "SPACE"
->992f		e2				                .byte $E2
+>992f		e2				                .byte key_space|$80
 >9930		1b				                .byte $1B
 >9931		45 53 43 41 50 45		                .text "ESCAPE"
->9937		f0				                .byte $F0
+>9937		f0				                .byte key_escape|$80
 >9938		7f				                .byte $7F
 >9939		44 45 4c 45 54 45		                .text "DELETE"
->993f		d9				                .byte $D9
+>993f		d9				                .byte key_delete|$80
 >9940		0d				                .byte $D
 >9941		52 45 54 55 52 4e		                .text "RETURN"
->9947		c9				                .byte $C9
+>9947		c9				                .byte key_return|$80
 >9948		8b				                .byte $8B
 >9949		43 55 52 53 4f 52 20 55		                .text "CURSOR UP"
 >9951		50
->9952		b9				                .byte $B9
+>9952		b9				                .byte key_up|$80
 >9953		8a				                .byte $8A
 >9954		43 55 52 53 4f 52 20 44		                .text "CURSOR DOWN"
 >995c		4f 57 4e
->995f		a9				                .byte $A9
+>995f		a9				                .byte key_down|$80
 >9960		88				                .byte $88
 >9961		43 55 52 53 4f 52 20 4c		                .text "CURSOR LEFT"
 >9969		45 46 54
->996c		99				                .byte $99
+>996c		99				                .byte key_left|$80
 >996d		89				                .byte $89
 >996e		43 55 52 53 4f 52 20 52		                .text "CURSOR RIGHT"
 >9976		49 47 48 54
->997a		f9				                .byte $F9
+>997a		f9				                .byte key_right|$80
 >997b		87				                .byte $87
 >997c		43 4f 50 59			                .text "COPY"
->9980		e9				                .byte $E9
+>9980		e9				                .byte key_copy|$80
 >9981		01				                .byte 1
 >9982		53 48 49 46 54			                .text "SHIFT"
->9987		80				                .byte $80
+>9987		80				                .byte key_shift|$80
 >9988		02				                .byte 2
 >9989		43 54 52 4c			                .text "CTRL"
->998d		81				                .byte $81
+>998d		81				                .byte key_ctrl|$80
 >998e		03				                .byte 3
 >998f		43 41 50 53 20 4c 4f 43		                .text "CAPS LOCK"
 >9997		4b
->9998		c0				                .byte $C0
+>9998		c0				                .byte key_caps_lock|$80
 >9999		00				                .text 0
 >999a		00				cmd_joystick_banner:.byte 0
 >999b		55 70 20 44 6f 77 6e 20		                .text "Up Down Left Right Fire"
